@@ -34,7 +34,7 @@ void unbind_texture();
 template <class T>
 int cuda_reduce_bstride2(int def_block_size, T &f, int N)
 {
-	int reduce_block_size = std::min(N, def_block_size);  // default block size of N, whichever is smaller
+	int reduce_block_size = std::min(N, def_block_size);  // default block size or N, whichever is smaller
 	int elements_per_block = 2 * reduce_block_size; // because we are reducing with block stride 2!!
 	int reduce_blocks = N / elements_per_block; 
 	if (N % elements_per_block != 0) ++reduce_blocks;
@@ -47,7 +47,7 @@ int cuda_reduce_bstride2(int def_block_size, T &f, int N)
 
 		N = reduce_blocks; // new number of elements to reduce
 
-		reduce_block_size = std::min(N, def_block_size);  // default block size of N, whichever is smaller
+		reduce_block_size = std::min(N, def_block_size);  // default block size or N, whichever is smaller
 		elements_per_block = 2 * reduce_block_size; // because we are reducing with block stride 2!!
 		reduce_blocks = N / elements_per_block; 
 		if (N % elements_per_block != 0) ++reduce_blocks;
@@ -174,183 +174,33 @@ int CudaSolver::select_working_set(int &out_i, int &out_j, int l)
 	return 0;
 }
 
-void CudaSolver::update_gradient(int N)
+void CudaSolver::update_gradient(int l)
 {
-	cuda_update_gradient<<<num_blocks, block_size>>>(N);
+	cuda_update_gradient<<<num_blocks, block_size>>>(l);
 }
 
-void CudaSolver::fetch_vectors(double *G, double *alpha, char *alpha_status, int N)
+void CudaSolver::fetch_vectors(double *G, double *alpha, char *alpha_status, int l)
 {
 	cudaError_t err;
 	{
-		std::unique_ptr<GradValue_t[]> h_G(new GradValue_t[N]);
-		err = cudaMemcpy(&h_G[0], &dh_G[0], sizeof(GradValue_t) * N, cudaMemcpyDeviceToHost);
+		std::unique_ptr<GradValue_t[]> h_G(new GradValue_t[l]);
+		err = cudaMemcpy(&h_G[0], &dh_G[0], sizeof(GradValue_t) * l, cudaMemcpyDeviceToHost);
 		check_cuda_return("fail to copy from device dh_G", err);
-		for (int i = 0; i < N; ++i)
+		for (int i = 0; i < l; ++i)
 			G[i] = h_G[i];
 	}
 	{
-		std::unique_ptr<GradValue_t[]> h_alpha(new GradValue_t[N]);
-		err = cudaMemcpy(&h_alpha[0], &dh_alpha[0], sizeof(GradValue_t) * N, cudaMemcpyDeviceToHost);
+		std::unique_ptr<GradValue_t[]> h_alpha(new GradValue_t[l]);
+		err = cudaMemcpy(&h_alpha[0], &dh_alpha[0], sizeof(GradValue_t) * l, cudaMemcpyDeviceToHost);
 		check_cuda_return("fail to copy from device dh_alpha", err);
-		for (int i = 0; i < N; ++i)
+		for (int i = 0; i < l; ++i)
 			alpha[i] = h_alpha[i];
 	}
 
-	err = cudaMemcpy(alpha_status, &dh_alpha_status[0], sizeof(char) * N, cudaMemcpyDeviceToHost);
+	err = cudaMemcpy(alpha_status, &dh_alpha_status[0], sizeof(char) * l, cudaMemcpyDeviceToHost);
 	check_cuda_return("fail to copy from device dh_alpha_status", err);
 }
 
-/**
-Stage data on cuda device
-*/
-void CudaSolver::load_data(int kernel_type, int svm_type, const SChar_t *y, const double *QD, 
-							 double *G, double *alpha, char *alpha_status,
-							 const svm_node * const * x, double *x_square, 
-							 int l, double gamma, double Cp, double Cn)
-{
-	cudaError_t err;
-	/**
-	* Setup for the following:
-	*	schar *dh_y;
-	*	double *dh_QD;
-	*	double *dh_G;				
-	*	svm_node **dh_x;
-	*	svm_node *dh_space;
-	*/
-
-	// allocate space for labels
-	dh_y = make_unique_cuda_array<SChar_t>(l);
-
-	err = cudaMemcpy(&dh_y[0], y, sizeof(SChar_t) * l, cudaMemcpyHostToDevice);
-	check_cuda_return("fail to copy to device for dh_y", err);
-
-	dh_QD = make_unique_cuda_array<CValue_t>(l);
-	{
-		std::unique_ptr<CValue_t[]> h_QD(new CValue_t[l]);
-		for (int i = 0; i < l; ++i) {
-			CHECK_FLT_RANGE(QD[i]);
-			h_QD[i] = static_cast<CValue_t>(QD[i]);
-		}
-
-		err = cudaMemcpy(&dh_QD[0], &h_QD[0], sizeof(CValue_t) * l, cudaMemcpyHostToDevice);
-		check_cuda_return("fail to copy to device for dh_QD", err);
-	}
-
-	/** allocate space for gradient vector */
-	dh_G = make_unique_cuda_array<GradValue_t>(l);
-
-	{
-		std::unique_ptr<GradValue_t[]> h_G(new GradValue_t[l]);
-		for (int i = 0; i < l; ++i)
-			h_G[i] = static_cast<GradValue_t>(G[i]);
-
-		err = cudaMemcpy(&dh_G[0], &h_G[0], sizeof(GradValue_t) * l, cudaMemcpyHostToDevice);
-		check_cuda_return("fail to copy to device for dh_G", err);
-	}
-
-	dh_alpha = make_unique_cuda_array<GradValue_t>(l);
-
-	{
-		std::unique_ptr<GradValue_t[]> h_alpha(new GradValue_t[l]);
-		for (int i = 0; i < l; ++i)
-			h_alpha[i] = static_cast<GradValue_t>(alpha[i]);
-
-		err = cudaMemcpy(&dh_alpha[0], &h_alpha[0], sizeof(GradValue_t) * l, cudaMemcpyHostToDevice);
-		check_cuda_return("fail to copy to device for dh_alpha", err);
-	}
-
-	dh_alpha_status = make_unique_cuda_array<char>(l);
-
-	cudaMemcpy(&dh_alpha_status[0], alpha_status, sizeof(char) * l, cudaMemcpyHostToDevice);
-	check_cuda_return("fail to copy to device for dh_alpha_status", err);
-
-	/** allocate space for support vectors */
-	int elements = 0;
-	for (int i = 0; i < l; ++i) 
-	{
-		const svm_node *tmp = x[i];
-		while (tmp->index != -1) { // row terminator
-			++elements; // count each row svm_node element
-			++tmp;
-		}
-		++elements; // count the row terminating svm_node
-	}
-
-	/**
-	NOTE: cuda_svm_node is typedef to float2
-	float2.x == svm_node.index
-	float2.y == svm_node.value
-	*/
-	std::unique_ptr<cuda_svm_node[]> x_space(new cuda_svm_node[elements]);
-	for (int i = 0, j = 0; i < l; ++i) {
-		const svm_node *tmp = x[i];
-		while (tmp->index != -1) {
-			x_space[j].x = static_cast<float>(tmp->index);
-			x_space[j].y = static_cast<CValue_t>(tmp->value);
-#ifdef DEBUG_VERIFY
-			if (abs(tmp->value - x_space[j].y) > 1e-4) {
-				std::cerr << "WARNING!: sample space value truncated by " 
-					<< abs(tmp->value-x_space[j].y) << std::endl;
-			}
-#endif
-			++j;
-			++tmp;
-		}
-		x_space[j++].x = -1;
-	}
-
-	dh_space = make_unique_cuda_array<cuda_svm_node>(elements);
-
-	err = cudaMemcpy(&dh_space[0], &x_space[0], sizeof(cuda_svm_node) * elements, cudaMemcpyHostToDevice);
-	check_cuda_return("fail to copy to device for dh_space", err); 
-
-	dh_x = make_unique_cuda_array<int>(l);
-
-	{
-		std::unique_ptr<int[]> h_x(new int[l]);
-
-		int i = 0;
-		bool assign_flag = false;
-		for (int j = 0; j < elements; ++j)
-		{
-			if (!assign_flag) {
-				if (i >= l) {
-					throw std::runtime_error("error in updating h_x");
-				}
-				h_x[i] = j;
-				assign_flag = true;
-			}
-			if (x_space[j].x == -1) {
-				++i;
-				assign_flag = false;
-			}
-		}
-
-		err = cudaMemcpy(&dh_x[0], &h_x[0], sizeof(int) * l, cudaMemcpyHostToDevice);
-		check_cuda_return("fail to copy to device for dh_x", err);
-	}
-
-	if (kernel_type == RBF)
-	{
-		std::unique_ptr<CValue_t[]> h_x_square(new CValue_t[l]);
-		for (int i = 0; i < l; ++i)
-			h_x_square[i] = static_cast<CValue_t>(x_square[i]);
-
-		dh_x_square = make_unique_cuda_array<CValue_t>(l);
-
-		err = cudaMemcpy(&dh_x_square[0], &h_x_square[0], sizeof(CValue_t) * l, cudaMemcpyHostToDevice);
-		check_cuda_return("fail to copy to device for dh_x_square", err);
-	}
-
-	/** setup constants */
-	err = update_constants_and_texture(kernel_type, svm_type, gamma, Cp, Cn,
-		&dh_y[0], &dh_QD[0], &dh_space[0], sizeof(cuda_svm_node)*elements, 
-		&dh_x[0], &dh_x_square[0], &dh_G[0], &dh_alpha[0], &dh_alpha_status[0]);
-	check_cuda_return("fail to setup constants/textures", err);
-
-	return ;
-}
 
 void CudaSolver::setup_solver(const SChar_t *y, const double *QD, double *G, double *alpha, char *alpha_status, double Cp, double Cn, int l) 
 {

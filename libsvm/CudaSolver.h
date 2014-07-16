@@ -174,11 +174,6 @@ private:
 
 	int select_working_set_j(double Gmax, int &Gmin_idx, int l);
 
-	void load_data(int kernel_type, int svm_type, const SChar_t *y, const double *QD, 
-		double *G, double *alpha, char *alpha_status, 
-		const svm_node * const * x, double *x_square, 
-		int l, double gamma, double Cp, double Cn);
-
 	void init_obj_diff_space(int l)
 	{
 		dh_obj_diff_array = make_unique_cuda_array<CValue_t>(l); 
@@ -202,7 +197,7 @@ private:
 	void show_memory_usage(const int &total_space);
 
 	/**
-	Pre-condition: Problem size is initialized
+	Initializes all the unique arrays.  These unique arrays will be automatically deallocated when they go out-of-scope.
 	*/
 	void init_memory_arrays(int l) {
 		int bsize = CUDA_BLOCK_SIZE; // TODO: query device for max thread block size
@@ -234,17 +229,6 @@ private:
 
 public:
 
-	CudaSolver(int kernel_type, int svm_type, const SChar_t *y, const double *QD, double *G, double *alpha, 
-		char *alpha_status, const svm_node * const * x, double *x_square, int l, double gamma, double eps, double Cp, double Cn) 
-		: gamma(gamma), eps(eps), mem_size(0), kernel_type(kernel_type), svm_type(svm_type)
-	{
-		init_memory_arrays(l);
-
-		load_data(kernel_type, svm_type, y, QD, G, alpha, alpha_status, x, x_square, l, gamma, Cp, Cn);
-
-		show_memory_usage(mem_size);
-	}
-
 	CudaSolver(const svm_problem &prob, const svm_parameter &param) 
 		: eps(param.eps), kernel_type(param.kernel_type), svm_type(param.svm_type), mem_size(0)
 	{
@@ -253,18 +237,19 @@ public:
 
 	void setup_solver(const SChar_t *y, const double *QD, double *G, double *alpha, 
 		char *alpha_status, double Cp, double Cn, int l) ;
-	void setup_rbf_variables(double *x_square, int l); // for RBF kernel
+
+	void setup_rbf_variables(double *x_square, int l); // for RBF kernel only
 
 	// return 1 if already optimal, return 0 otherwise
 	int select_working_set(int &out_i, int &out_j, int l);
 
-	void update_gradient(int N);
+	void update_gradient(int l);
 
 	void compute_alpha();
 
 	void update_alpha_status();
 
-	void fetch_vectors(double *G, double *alpha, char *alpha_status, int N);
+	void fetch_vectors(double *G, double *alpha, char *alpha_status, int l);
 
 	~CudaSolver();
 };
