@@ -173,67 +173,21 @@ private:
 	enum { LOWER_BOUND = 0, UPPER_BOUND = 1, FREE = 2 };
 
 	int select_working_set_j(double Gmax, int &Gmin_idx, int l);
-
-	void init_obj_diff_space(int l)
-	{
-		dh_obj_diff_array = make_unique_cuda_array<CValue_t>(l); 
-		dh_obj_diff_idx = make_unique_cuda_array<int>(l);
-		dh_result_obj_diff = make_unique_cuda_array<CValue_t>(num_blocks);  
-		dh_result_idx = make_unique_cuda_array<int>(num_blocks);  
-		return ;
-	}
-
-	void init_gmax_space(int l)
-	{
-		dh_gmax = make_unique_cuda_array<GradValue_t>(l);
-		dh_gmax2 = make_unique_cuda_array<GradValue_t>(l); 
-		dh_gmax_idx = make_unique_cuda_array<int>(l); 
-		dh_result_gmax = make_unique_cuda_array<GradValue_t>(num_blocks); 
-		dh_result_gmax2 = make_unique_cuda_array<GradValue_t>(num_blocks); 
-		dh_result_gmax_idx = make_unique_cuda_array<int>(num_blocks); 
-		return ;
-	}
-
+	void init_obj_diff_space(int l);
+	void init_gmax_space(int l);
 	void show_memory_usage(const int &total_space);
 
 	/**
 	Initializes all the unique arrays.  These unique arrays will be automatically deallocated when they go out-of-scope.
 	*/
-	void init_memory_arrays(int l) {
-		int bsize = CUDA_BLOCK_SIZE; // TODO: query device for max thread block size
-		while (l / bsize < 10 && bsize > 32) {
-			bsize >>= 1; // halve it
-		}
-
-		block_size = bsize;
-		num_blocks = l / block_size;
-		if (l % block_size != 0) ++num_blocks;
-
-		std::cout << "CUDA Integration\n";
-		std::cout << "----------------\n";
-		std::cout << "Selected thread block size:         " << bsize << std::endl;
-		std::cout << "Selected number of blocks:          " << num_blocks << std::endl;
-		std::cout << "Problem size:                       " << l << std::endl;
-		std::cout << "Gradient vector stored as:          " << typeid(GradValue_t).name() << std::endl;
-
-		result_idx.reset(new int[num_blocks]);
-		result_obj_diff.reset(new CValue_t[num_blocks]);
-		result_gmax.reset(new GradValue_t[num_blocks]);
-		result_gmax2.reset(new GradValue_t[num_blocks]);
-
-		init_obj_diff_space(l);
-		init_gmax_space(l);
-	}
+	void init_memory_arrays(int l);
 
 	void load_problem_parameters(const svm_problem &prob, const svm_parameter &param);
 
 public:
 
-	CudaSolver(const svm_problem &prob, const svm_parameter &param) 
-		: eps(param.eps), kernel_type(param.kernel_type), svm_type(param.svm_type), mem_size(0)
-	{
-		load_problem_parameters(prob, param);
-	}
+	CudaSolver(const svm_problem &prob, const svm_parameter &param);
+	~CudaSolver();
 
 	void setup_solver(const SChar_t *y, const double *QD, double *G, double *alpha, 
 		char *alpha_status, double Cp, double Cn, int l) ;
@@ -251,7 +205,6 @@ public:
 
 	void fetch_vectors(double *G, double *alpha, char *alpha_status, int l);
 
-	~CudaSolver();
 };
 
 extern CudaSolver *cudaSolver;

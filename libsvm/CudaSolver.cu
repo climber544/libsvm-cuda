@@ -126,6 +126,64 @@ public:
 	}
 };
 
+void CudaSolver::init_obj_diff_space(int l)
+{
+	dh_obj_diff_array = make_unique_cuda_array<CValue_t>(l);
+	dh_obj_diff_idx = make_unique_cuda_array<int>(l);
+	dh_result_obj_diff = make_unique_cuda_array<CValue_t>(num_blocks);
+	dh_result_idx = make_unique_cuda_array<int>(num_blocks);
+	return;
+}
+
+void CudaSolver::init_gmax_space(int l)
+{
+	dh_gmax = make_unique_cuda_array<GradValue_t>(l);
+	dh_gmax2 = make_unique_cuda_array<GradValue_t>(l);
+	dh_gmax_idx = make_unique_cuda_array<int>(l);
+	dh_result_gmax = make_unique_cuda_array<GradValue_t>(num_blocks);
+	dh_result_gmax2 = make_unique_cuda_array<GradValue_t>(num_blocks);
+	dh_result_gmax_idx = make_unique_cuda_array<int>(num_blocks);
+	return;
+}
+
+void CudaSolver::init_memory_arrays(int l) {
+	int bsize = CUDA_BLOCK_SIZE; // TODO: query device for max thread block size
+	while (l / bsize < 10 && bsize > 32) {
+		bsize >>= 1; // halve it
+	}
+
+	block_size = bsize;
+	num_blocks = l / block_size;
+	if (l % block_size != 0) ++num_blocks;
+
+	std::cout << "CUDA Integration\n";
+	std::cout << "----------------\n";
+	std::cout << "Selected thread block size:         " << bsize << std::endl;
+	std::cout << "Selected number of blocks:          " << num_blocks << std::endl;
+	std::cout << "Problem size:                       " << l << std::endl;
+	std::cout << "Gradient vector stored as:          " << typeid(GradValue_t).name() << std::endl;
+
+	result_idx.reset(new int[num_blocks]);
+	result_obj_diff.reset(new CValue_t[num_blocks]);
+	result_gmax.reset(new GradValue_t[num_blocks]);
+	result_gmax2.reset(new GradValue_t[num_blocks]);
+
+	init_obj_diff_space(l);
+	init_gmax_space(l);
+}
+
+CudaSolver::CudaSolver(const svm_problem &prob, const svm_parameter &param)
+	: eps(param.eps), kernel_type(param.kernel_type), svm_type(param.svm_type), mem_size(0)
+{
+	load_problem_parameters(prob, param);
+}
+
+CudaSolver::~CudaSolver()
+{
+	unbind_texture();
+	cudaDeviceReset();
+}
+
 void CudaSolver::compute_alpha()
 {
 	cuda_compute_alpha<<<1, 1>>>();
@@ -371,8 +429,3 @@ void CudaSolver::show_memory_usage(const int &total_space)
 	printf("Percentage allocated:               %f%%\n", (double)total_space/devProp.totalGlobalMem * 100);
 }
 
-CudaSolver::~CudaSolver()
-{
-	unbind_texture();
-	cudaDeviceReset();
-}
