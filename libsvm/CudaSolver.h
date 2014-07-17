@@ -70,7 +70,7 @@ typedef float2 cuda_svm_node;
 
 class CudaSolver
 {
-public:
+protected:
 	static inline void check_cuda_return(const char *msg, cudaError_t err)
 	{
 		if (err != cudaSuccess) {
@@ -81,7 +81,45 @@ public:
 		}
 	}
 
-private:
+protected:
+
+	/**
+	Cross cuda block reducers -- every device function only reducers per block
+	We need to reduce across blocks as well
+	*/
+	template <class T>
+	int cross_block_reducer(int def_block_size, T &f, int N)
+	{
+		int reduce_block_size = std::min(N, def_block_size);  // default block size or N, whichever is smaller
+		int elements_per_block = 2 * reduce_block_size; // because we are reducing with block stride 2!!
+		int reduce_blocks = N / elements_per_block;
+		if (N % elements_per_block != 0) ++reduce_blocks;
+
+		while (reduce_blocks > 0) {
+			f.compute(reduce_blocks, reduce_block_size, N);
+
+			if (reduce_blocks == 1)
+				break;
+
+			N = reduce_blocks; // new number of elements to reduce
+
+			reduce_block_size = std::min(N, def_block_size);  // default block size or N, whichever is smaller
+			elements_per_block = 2 * reduce_block_size; // because we are reducing with block stride 2!!
+			reduce_blocks = N / elements_per_block;
+			if (N % elements_per_block != 0) ++reduce_blocks;
+
+			f.swap();
+		}
+
+		return f.process_output();
+	}
+
+	class MinIdxFunctor; // class object used for cross_block_reducer() template function
+	class GmaxFunctor;  // class object used for cross_block_reducer() template function
+
+	/**
+	Smart pointers for CUDA arrays.  Their semantics are similar to C++11 std::unique_ptr.
+	*/
 	struct CudaDeleter
 	{
 		void operator()(void *p)
@@ -132,6 +170,9 @@ private:
 		return CudaArray_t<T>(static_cast<T *>(ptr));
 	}
 
+	/**
+	Properties of this CUDA solver
+	*/
 	int num_blocks;
 	int block_size;
 
@@ -143,6 +184,9 @@ private:
 
 	int mem_size; // amount of cuda memory allocated
 
+	/**
+	CUDA device memory arrays
+	*/
 	CudaArray_t<GradValue_t> dh_gmax; // GradValue_t *dh_gmax;
 	CudaArray_t<GradValue_t> dh_gmax2; // GradValue_t *dh_gmax2;
 	CudaArray_t<int> dh_gmax_idx; // int *dh_gmax_idx;
@@ -164,7 +208,9 @@ private:
 	CudaArray_t<GradValue_t> dh_alpha; // GradValue_t *dh_alpha;
 	CudaArray_t<char> dh_alpha_status; // char *dh_alpha_status;	
 
-	// The following arrays are required by the reducers
+	/**
+	The following arrays are required by the reducers
+	*/
 	std::unique_ptr<int[]> result_idx;
 	std::unique_ptr<CValue_t[]> result_obj_diff;
 	std::unique_ptr<GradValue_t[]> result_gmax;

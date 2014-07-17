@@ -1,64 +1,10 @@
 #include "CudaSolver.h"
+#include "cuda_device_functions.h"
 #include <memory>
 
 CudaSolver *cudaSolver;
 
-
-__global__ void cuda_find_min_idx(CValue_t *obj_diff_array, int *obj_diff_indx, CValue_t *result_obj_min, int *result_indx, int N);
-
-__global__ void cuda_compute_obj_diff(double Gmax, CValue_t *dh_obj_diff_array, int *result_indx, int N);
-
-__global__ void cuda_update_gradient(int N);
-
-__global__ void cuda_find_gmax(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int *dh_gmax_idx, 
-							   GradValue_t *result_gmax, GradValue_t *result_gmax2, int *result_gmax_idx, int N);
-
-__global__ void cuda_prep_gmax(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int *dh_gmax_idx,   
-							   GradValue_t *result_gmax, GradValue_t *result_gmax2, int *result_gmax_idx, int N);
-
-__global__ void cuda_compute_alpha();
-
-__global__ void cuda_update_alpha_status();
-
-cudaError_t update_solver_variables(SChar_t *dh_y, CValue_t *dh_QD, GradValue_t *dh_G, GradValue_t *dh_alpha, char *dh_alpha_status, double Cp, double Cn);
-cudaError_t update_rbf_variables(CValue_t *dh_x_square);
-cudaError_t update_param_constants(const svm_parameter &param, int *dh_x, cuda_svm_node *dh_space, size_t dh_space_size);
-
-cudaError_t update_constants_and_texture(int kernel_type, int svm_type, double gamma, double Cp, double Cn,
-										 SChar_t *dh_y, CValue_t *dh_QD, 
-										 cuda_svm_node *dh_space, size_t dh_space_size, 
-										 int *dh_x, CValue_t *dh_x_square,
-										 GradValue_t *dh_G, GradValue_t *dh_alpha, char *dh_alpha_status);
-void unbind_texture();
-
-template <class T>
-int cuda_reduce_bstride2(int def_block_size, T &f, int N)
-{
-	int reduce_block_size = std::min(N, def_block_size);  // default block size or N, whichever is smaller
-	int elements_per_block = 2 * reduce_block_size; // because we are reducing with block stride 2!!
-	int reduce_blocks = N / elements_per_block; 
-	if (N % elements_per_block != 0) ++reduce_blocks;
-
-	while (reduce_blocks > 0) {
-		f.compute(reduce_blocks, reduce_block_size, N);
-
-		if (reduce_blocks == 1)
-			break;
-
-		N = reduce_blocks; // new number of elements to reduce
-
-		reduce_block_size = std::min(N, def_block_size);  // default block size or N, whichever is smaller
-		elements_per_block = 2 * reduce_block_size; // because we are reducing with block stride 2!!
-		reduce_blocks = N / elements_per_block; 
-		if (N % elements_per_block != 0) ++reduce_blocks;
-
-		f.swap();
-	}
-
-	return f.process_output();
-}
-
-class MinIdxFunctor // functor for cuda_reduce_bstride2() template function
+class CudaSolver::MinIdxFunctor // class object used for cross_block_reducer() template function
 {
 private:
 	CValue_t *input_array, *output_array;
@@ -86,7 +32,7 @@ public:
 	}
 };
 
-class GmaxFunctor // functor for cuda_reduce_bstride2() template function
+class CudaSolver::GmaxFunctor // class object used for cross_block_reducer() template function
 {
 private:
 	GradValue_t *input_array1, *input_array2, *output_array1, *output_array2;
@@ -200,7 +146,7 @@ int CudaSolver::select_working_set_j(double Gmax, int &Gmin_idx, int l)
 	cuda_compute_obj_diff<<<num_blocks, block_size>>>(Gmax, &dh_obj_diff_array[0], &dh_obj_diff_idx[0], l);
 
 	MinIdxFunctor func(&dh_obj_diff_array[0], &dh_obj_diff_idx[0], &dh_result_obj_diff[0], &dh_result_idx[0]);
-	Gmin_idx = cuda_reduce_bstride2(block_size, func, l);
+	Gmin_idx = cross_block_reducer(block_size, func, l);
 	return Gmin_idx;
 }
 
@@ -216,7 +162,7 @@ int CudaSolver::select_working_set(int &out_i, int &out_j, int l)
 		&dh_result_gmax[0], &dh_result_gmax2[0], &dh_result_gmax_idx[0], l);
 
 	GmaxFunctor func(&dh_gmax[0], &dh_gmax2[0], &dh_gmax_idx[0], &dh_result_gmax[0], &dh_result_gmax2[0], &dh_result_gmax_idx[0]);
-	Gmax_idx = cuda_reduce_bstride2(block_size, func, l);
+	Gmax_idx = cross_block_reducer(block_size, func, l);
 	func.get_gmax_values(Gmax, Gmax2);
 
 	dbgprintf(true, "Device: Gmax_idx %d Gmax %g Gmax2 %g\n", Gmax_idx, Gmax, Gmax2);
