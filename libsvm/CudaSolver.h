@@ -137,7 +137,7 @@ protected:
 		std::unique_ptr<T[], CudaDeleter> dh_ptr;
 
 	public:
-		T &operator[](size_t idx) {
+		T &operator[](size_t idx) { // subscript operator
 			return dh_ptr[idx];
 		}
 
@@ -145,7 +145,7 @@ protected:
 			dh_ptr.reset(ptr);
 		}
 
-		CudaArray_t() {}
+		CudaArray_t() {} // No-arg constructor
 
 		// Move operator to maintian unique_ptr semantics
 		CudaArray_t &operator=(CudaArray_t &&other) { // Note: parameter is not const
@@ -177,8 +177,6 @@ protected:
 	int block_size;
 
 	double eps;
-	double gamma;
-
 	int kernel_type;
 	int svm_type;
 
