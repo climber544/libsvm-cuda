@@ -1,5 +1,6 @@
-#ifndef _CUDA_GLOBALS_H_
-#define _CUDA_GLOBALS_H_
+#ifndef _CUDA_SOLVER_H_
+#define _CUDA_SOLVER_H_
+
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 #include "device_functions.h"
@@ -216,17 +217,22 @@ protected:
 
 	enum { LOWER_BOUND = 0, UPPER_BOUND = 1, FREE = 2 };
 
-	int select_working_set_j(double Gmax, int &Gmin_idx, int l);
+	/**
+	Initializes the cuda device memory array
+	*/
 	void init_obj_diff_space(int l);
 	void init_gmax_space(int l);
-	void show_memory_usage(const int &total_space);
 
 	/**
-	Initializes all the unique arrays.  These unique arrays will be automatically deallocated when they go out-of-scope.
+	Main calling method for initializing all the unique arrays.  
+	These unique arrays will be automatically deallocated when they go out-of-scope.
 	*/
 	void init_memory_arrays(int l);
+	void show_memory_usage(const int &total_space);
 
 	void load_problem_parameters(const svm_problem &prob, const svm_parameter &param);
+
+	virtual int select_working_set_j(double Gmax, int &Gmin_idx, int l);
 
 public:
 
@@ -239,7 +245,7 @@ public:
 	void setup_rbf_variables(double *x_square, int l); // for RBF kernel only
 
 	// return 1 if already optimal, return 0 otherwise
-	int select_working_set(int &out_i, int &out_j, int l);
+	virtual int select_working_set(int &out_i, int &out_j, int l);
 
 	void update_gradient(int l);
 
@@ -248,7 +254,6 @@ public:
 	void update_alpha_status();
 
 	void fetch_vectors(double *G, double *alpha, char *alpha_status, int l);
-
 };
 
 extern CudaSolver *cudaSolver;
