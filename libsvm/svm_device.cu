@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <iostream>
 using namespace std;
-#include "cuda_device_functions.h"
+#include "svm_device.h"
 #include "CudaReducer.h"
 
 enum { LOWER_BOUND = 0, UPPER_BOUND = 1, FREE = 2 };
@@ -136,87 +136,6 @@ cudaError_t update_rbf_variables(CValue_t *dh_x_square)
 			return err;
 		}
 	}
-	return err;
-}
-
-cudaError_t update_constants_and_texture(int kernel_type, int svm_type, double gamma, double Cp, double Cn,
-										 SChar_t *dh_y, CValue_t *dh_QD, 
-										 cuda_svm_node *dh_space, size_t dh_space_size, 
-										 int *dh_x, CValue_t *dh_x_square,
-										 GradValue_t *dh_G, GradValue_t *dh_alpha, char *dh_alpha_status)
-{
-	cudaError_t err;
-
-	err = cudaMemcpyToSymbol(d_Cp, &Cp, sizeof(Cp));
-	if (err != cudaSuccess) {
-		fprintf(stderr, "Error with copying to symbol d_Cp\n");
-		return err;
-	}
-	err = cudaMemcpyToSymbol(d_Cn, &Cn, sizeof(Cn));
-	if (err != cudaSuccess) {
-		fprintf(stderr, "Error with copying to symbol d_Cn\n");
-		return err;
-	}
-	err = cudaMemcpyToSymbol(d_y, &dh_y, sizeof(dh_y));
-	if (err != cudaSuccess) {
-		fprintf(stderr, "Error copying to symbol d_y\n");
-		return err;
-	}
-	err = cudaMemcpyToSymbol(d_QD, &dh_QD, sizeof(dh_QD));
-	if (err != cudaSuccess) {
-		fprintf(stderr, "Error copying to symbol d_QD\n");
-		return err;
-	}
-
-	err = cudaMemcpyToSymbol(d_G, &dh_G, sizeof(dh_G));
-	if (err != cudaSuccess) {
-		fprintf(stderr, "Error copying to symbol d_G\n");
-		return err;
-	}
-	err = cudaMemcpyToSymbol(d_alpha, &dh_alpha, sizeof(dh_alpha));
-	if (err != cudaSuccess) {
-		fprintf(stderr, "Error copying to symbol d_alpha\n");
-		return err;
-	}
-	err = cudaMemcpyToSymbol(d_alpha_status, &dh_alpha_status, sizeof(dh_alpha_status));
-	if (err != cudaSuccess) {
-		fprintf(stderr, "Error copying to symbol d_alpha_status\n");
-		return err;
-	}
-	err = cudaMemcpyToSymbol(d_kernel_type, &kernel_type, sizeof(kernel_type));
-	if (err != cudaSuccess) {
-		fprintf(stderr, "Error with copying to symbol d_kernel_type\n");
-		return err;
-	}
-	err = cudaMemcpyToSymbol(d_svm_type, &svm_type, sizeof(svm_type));
-	if (err != cudaSuccess) {
-		fprintf(stderr, "Error with copying to symbol d_svm_type\n");
-		return err;
-	}
-	err = cudaMemcpyToSymbol(d_gamma, &gamma, sizeof(gamma));
-	if (err != cudaSuccess) {
-		fprintf(stderr, "Error with copying to symbol d_gamma\n");
-		return err;
-	}
-	err = cudaMemcpyToSymbol(d_x, &dh_x, sizeof(dh_x));
-	if (err != cudaSuccess) {
-		fprintf(stderr, "Error copying to symbol d_x\n");
-		return err;
-	}
-	err = cudaMemcpyToSymbol(d_x_square, &dh_x_square, sizeof(dh_x_square));
-	if (err != cudaSuccess) {
-		fprintf(stderr, "Error copying to symbol d_x_square\n");
-		return err;
-	}
-#ifdef USE_CONSTANT_SVM_NODE
-	err = cudaMemcpyToSymbol(d_space, &dh_space, sizeof(dh_space));
-	if (err != cudaSuccess) {
-		fprintf(stderr, "Error copying to symbol d_space\n");
-		return err;
-	}
-#else
-	err = cudaBindTexture(0, d_tex_space, dh_space, dh_space_size);
-#endif
 	return err;
 }
 
@@ -456,8 +375,7 @@ __global__ void cuda_prep_gmax(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int 
 			dh_gmax[t] = -d_G[t];
 			dh_gmax_idx[t] = t;
 		}
-		if (!(d_alpha_status[t] == LOWER_BOUND) /*is_lower_bound(t)*/)
-		{
+		if (!(d_alpha_status[t] == LOWER_BOUND) /*is_lower_bound(t)*/) {
 			dh_gmax2[t] = d_G[t];
 		}
 	}
@@ -467,8 +385,7 @@ __global__ void cuda_prep_gmax(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int 
 			dh_gmax[t] = d_G[t];
 			dh_gmax_idx[t] = t;
 		}
-		if (!(d_alpha_status[t] == UPPER_BOUND) /*is_upper_bound(t)*/)
-		{
+		if (!(d_alpha_status[t] == UPPER_BOUND) /*is_upper_bound(t)*/) {
 			dh_gmax2[t] = -d_G[t];
 		}
 	}
@@ -601,7 +518,7 @@ __global__ void cuda_update_alpha_status()
 }
 
 /*********** NU Solver ************/
-__global__ void cuda_prep_nu_gmax(GradValue_t *dh_gmaxp, GradValue_t *dh_gmaxp2, GradValue_t *dh_gmaxn, GradValue_t *dh_gmaxn2,
+__global__ void cuda_prep_nu_gmax(GradValue_t *dh_gmaxp, GradValue_t *dh_gmaxn, GradValue_t *dh_gmaxp2, GradValue_t *dh_gmaxn2,
 	int *dh_gmaxp_idx, int *dh_gmaxn_idx, int N)
 {
 	int t = blockIdx.x * blockDim.x + threadIdx.x;
@@ -622,8 +539,7 @@ __global__ void cuda_prep_nu_gmax(GradValue_t *dh_gmaxp, GradValue_t *dh_gmaxp2,
 			dh_gmaxp[t] = -d_G[t];
 			dh_gmaxp_idx[t] = t;
 		}
-		if (!(d_alpha_status[t] == LOWER_BOUND) /*is_lower_bound(t)*/)
-		{
+		if (!(d_alpha_status[t] == LOWER_BOUND) /*is_lower_bound(t)*/) {
 			dh_gmaxp2[t] = d_G[t];
 		}
 	}
@@ -633,8 +549,7 @@ __global__ void cuda_prep_nu_gmax(GradValue_t *dh_gmaxp, GradValue_t *dh_gmaxp2,
 			dh_gmaxn[t] = d_G[t];
 			dh_gmaxn_idx[t] = t;
 		}
-		if (!(d_alpha_status[t] == UPPER_BOUND) /*is_upper_bound(t)*/)
-		{
+		if (!(d_alpha_status[t] == UPPER_BOUND) /*is_upper_bound(t)*/) {
 			dh_gmaxn2[t] = -d_G[t];
 		}
 	}

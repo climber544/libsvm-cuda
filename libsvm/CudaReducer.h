@@ -1,3 +1,7 @@
+/**
+Cuda device functions for block reduction
+@author: Ed Walker
+*/
 #ifndef _CUDA_TEMPLATES_H_
 #define _CUDA_TEMPLATES_H_
 #include "CudaSolver.h"

@@ -1,5 +1,5 @@
 #include "CudaNuSolver.h"
-#include "cuda_device_functions.h"
+#include "svm_device.h"
 
 /*********** NuGmaxFunctor ****************/
 class CudaNuSolver::NuGmaxFunctor // class object used for cross_block_reducer() template function
@@ -112,17 +112,18 @@ public:
 		return -1;
 	}
 };
+
 void CudaNuSolver::init_gmax_space(int l)
 {
 	dh_gmaxp = make_unique_cuda_array<GradValue_t>(l);
-	dh_gmaxp2 = make_unique_cuda_array<GradValue_t>(l);
 	dh_gmaxn = make_unique_cuda_array<GradValue_t>(l);
+	dh_gmaxp2 = make_unique_cuda_array<GradValue_t>(l);
 	dh_gmaxn2 = make_unique_cuda_array<GradValue_t>(l);
 	dh_gmaxp_idx = make_unique_cuda_array<int>(l);
 	dh_gmaxn_idx = make_unique_cuda_array<int>(l);
 	dh_result_gmaxp = make_unique_cuda_array<GradValue_t>(num_blocks);
-	dh_result_gmaxp2 = make_unique_cuda_array<GradValue_t>(num_blocks);
 	dh_result_gmaxn = make_unique_cuda_array<GradValue_t>(num_blocks);
+	dh_result_gmaxp2 = make_unique_cuda_array<GradValue_t>(num_blocks);
 	dh_result_gmaxn2 = make_unique_cuda_array<GradValue_t>(num_blocks);
 	dh_result_gmaxp_idx = make_unique_cuda_array<int>(num_blocks);
 	dh_result_gmaxn_idx = make_unique_cuda_array<int>(num_blocks);
@@ -135,7 +136,9 @@ void CudaNuSolver::select_working_set_j(GradValue_t Gmaxp, GradValue_t Gmaxn, in
 	cuda_compute_nu_obj_diff << <num_blocks, block_size >> >(Gmaxp, Gmaxn, &dh_obj_diff_array[0], &dh_obj_diff_idx[0], l);
 
 	NuMinIdxFunctor func(&dh_obj_diff_array[0], &dh_obj_diff_idx[0], &dh_result_obj_diff[0], &dh_result_idx[0]);
+
 	cross_block_reducer(block_size, func, l);
+
 	return ;
 }
 
@@ -147,7 +150,7 @@ int CudaNuSolver::select_working_set(int &out_i, int &out_j, int l)
 	GradValue_t Gmaxn = -GRADVALUE_MAX;
 	GradValue_t Gmaxn2 = -GRADVALUE_MAX;
 
-	cuda_prep_nu_gmax << <num_blocks, block_size >> >(&dh_gmaxp[0], &dh_gmaxp2[0], &dh_gmaxn[0], &dh_gmaxn2[0], 
+	cuda_prep_nu_gmax << <num_blocks, block_size >> >(&dh_gmaxp[0], &dh_gmaxn[0], &dh_gmaxp2[0], &dh_gmaxn2[0],
 		&dh_gmaxp_idx[0], &dh_gmaxn_idx[0], l);
 
 	NuGmaxFunctor func(&dh_gmaxp[0], &dh_gmaxn[0], &dh_gmaxp2[0], &dh_gmaxn2[0],

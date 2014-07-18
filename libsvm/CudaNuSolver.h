@@ -1,3 +1,7 @@
+/**
+Cuda implementation of NU SMO solver
+@author: Ed Walker
+*/
 #ifndef _CUDA_NU_SOLVER_H_
 #define _CUDA_NU_SOLVER_H_
 

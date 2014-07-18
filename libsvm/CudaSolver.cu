@@ -1,5 +1,5 @@
 #include "CudaSolver.h"
-#include "cuda_device_functions.h"
+#include "svm_device.h"
 #include <memory>
 
 CudaSolver *cudaSolver;
