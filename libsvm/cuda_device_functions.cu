@@ -35,8 +35,8 @@ __device__		char			*d_alpha_status;
 __device__		GradValue_t		d_delta_alpha_i;
 __device__		GradValue_t		d_delta_alpha_j;
 
-__device__		int2			d_solver; // member x and y hold the selected i and j indices respectively
-__device__		int2			d_nu_solver; // member x and y hold the ip and in indices respectively.  
+__device__		int2			d_solver; // member x and y hold the selected i and j working set indices respectively
+__device__		int2			d_nu_solver; // member x and y hold the Gmaxp_idx and Gmaxn_idx indices respectively.  
 
 cudaError_t update_param_constants(const svm_parameter &param, int *dh_x, cuda_svm_node *dh_space, size_t dh_space_size)
 {
