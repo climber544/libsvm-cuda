@@ -116,7 +116,8 @@ protected:
 	}
 
 	class MinIdxFunctor; // class object used for cross_block_reducer() template function
-	class GmaxFunctor;  // class object used for cross_block_reducer() template function
+
+	class GmaxFunctor; // class object used for cross_block_reducer() template function
 
 	/**
 	Smart pointers for CUDA arrays.  Their semantics are similar to C++11 std::unique_ptr.
@@ -186,26 +187,26 @@ protected:
 	/**
 	CUDA device memory arrays
 	*/
-	CudaArray_t<GradValue_t> dh_gmax; // GradValue_t *dh_gmax;
-	CudaArray_t<GradValue_t> dh_gmax2; // GradValue_t *dh_gmax2;
-	CudaArray_t<int> dh_gmax_idx; // int *dh_gmax_idx;
-	CudaArray_t<GradValue_t> dh_result_gmax; // GradValue_t *dh_result_gmax;
-	CudaArray_t<GradValue_t> dh_result_gmax2; // GradValue_t *dh_result_gmax2;
-	CudaArray_t<int> dh_result_gmax_idx; // int *dh_result_gmax_idx;
+	CudaArray_t<GradValue_t> dh_gmax; 
+	CudaArray_t<GradValue_t> dh_gmax2; 
+	CudaArray_t<int> dh_gmax_idx; 
+	CudaArray_t<GradValue_t> dh_result_gmax; 
+	CudaArray_t<GradValue_t> dh_result_gmax2; 
+	CudaArray_t<int> dh_result_gmax_idx; 
 
-	CudaArray_t<CValue_t> dh_obj_diff_array; // CValue_t *dh_obj_diff_array;
+	CudaArray_t<CValue_t> dh_obj_diff_array; 
 	CudaArray_t<int> dh_obj_diff_idx;
-	CudaArray_t<CValue_t> dh_result_obj_diff; // CValue_t *dh_result_obj_diff;
-	CudaArray_t<int> dh_result_idx; // int *dh_result_idx;
+	CudaArray_t<CValue_t> dh_result_obj_diff; 
+	CudaArray_t<int> dh_result_idx; 
 
-	CudaArray_t<SChar_t> dh_y; // SChar_t *dh_y;
-	CudaArray_t<GradValue_t> dh_G; // GradValue_t *dh_G;	
-	CudaArray_t<CValue_t> dh_QD; // CValue_t *dh_QD;
-	CudaArray_t<int> dh_x; // int *dh_x;
-	CudaArray_t<cuda_svm_node> dh_space; // cuda_svm_node *dh_space;
-	CudaArray_t<CValue_t> dh_x_square; // CValue_t *dh_x_square;
-	CudaArray_t<GradValue_t> dh_alpha; // GradValue_t *dh_alpha;
-	CudaArray_t<char> dh_alpha_status; // char *dh_alpha_status;	
+	CudaArray_t<SChar_t> dh_y; 
+	CudaArray_t<GradValue_t> dh_G;	
+	CudaArray_t<CValue_t> dh_QD; 
+	CudaArray_t<int> dh_x; 
+	CudaArray_t<cuda_svm_node> dh_space; 
+	CudaArray_t<CValue_t> dh_x_square; 
+	CudaArray_t<GradValue_t> dh_alpha; 
+	CudaArray_t<char> dh_alpha_status; 	
 
 	/**
 	The following arrays are required by the reducers
@@ -217,22 +218,26 @@ protected:
 
 	enum { LOWER_BOUND = 0, UPPER_BOUND = 1, FREE = 2 };
 
+private:
+
 	/**
 	Initializes the cuda device memory array
 	*/
 	void init_obj_diff_space(int l);
-	void init_gmax_space(int l);
+	virtual void init_gmax_space(int l); // CudaNuSolver will override this
 
 	/**
-	Main calling method for initializing all the unique arrays.  
-	These unique arrays will be automatically deallocated when they go out-of-scope.
+	init_memory_arrays:
+	The main method for initializing all the unique arrays.  
+	The unique arrays will be automatically deallocated when they go out-of-scope.
 	*/
 	void init_memory_arrays(int l);
+
 	void show_memory_usage(const int &total_space);
 
 	void load_problem_parameters(const svm_problem &prob, const svm_parameter &param);
 
-	virtual int select_working_set_j(double Gmax, int &Gmin_idx, int l);
+	void select_working_set_j(GradValue_t Gmax, int l);
 
 public:
 

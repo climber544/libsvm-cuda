@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <iostream>
 using namespace std;
-
+#include "cuda_device_functions.h"
 #include "CudaReducer.h"
 
 enum { LOWER_BOUND = 0, UPPER_BOUND = 1, FREE = 2 };
@@ -35,7 +35,8 @@ __device__		char			*d_alpha_status;
 __device__		GradValue_t		d_delta_alpha_i;
 __device__		GradValue_t		d_delta_alpha_j;
 
-__device__		int2			d_solver; // member x and y hold the SMO selected i and j indices respectively
+__device__		int2			d_solver; // member x and y hold the selected i and j indices respectively
+__device__		int2			d_nu_solver; // member x and y hold the ip and in indices respectively.  
 
 cudaError_t update_param_constants(const svm_parameter &param, int *dh_x, cuda_svm_node *dh_space, size_t dh_space_size)
 {
@@ -349,34 +350,30 @@ __device__ CValue_t cuda_evalQ(int i, int j)
 
 __global__ void cuda_find_min_idx(CValue_t *obj_diff_array, int *obj_diff_indx, CValue_t *result_obj_min, int *result_indx, int N) 
 {
-	D_MinIdxFunctor func(obj_diff_array, obj_diff_indx, result_obj_min, result_indx); // Class defined in Cuda_Reduce.h
-	device_reduce_bstride2(func, N); // Template function defined in Cuda_Reduce.h
+	D_MinIdxFunctor func(obj_diff_array, obj_diff_indx, result_obj_min, result_indx); // Class defined in CudaReducer.h
+	device_block_reducer(func, N); // Template function defined in CudaReducer.h
 	if (blockIdx.x == 0)
 		d_solver.y = func.return_idx();
 }
 
-__global__ void cuda_compute_obj_diff(double Gmax, CValue_t *dh_obj_diff_array, int *result_indx, int N)
+__global__ void cuda_compute_obj_diff(GradValue_t Gmax, CValue_t *dh_obj_diff_array, int *result_indx, int N)
 {
 	int i = d_solver.x;
 
 	int j = blockDim.x * blockIdx.x + threadIdx.x;
-	bool debug = false;
 	if (j >= N)
 		return ;
 
 	dh_obj_diff_array[j] = CVALUE_MAX;
 	result_indx[j] = -1;
-	dbgprintf(debug, "device code: j=%d y[j]=%d alpha_status[j]=%d\n", j, d_y[j], dh_alpha_status[j]);
 	if(d_y[j] == 1)
 	{
 		if (!(d_alpha_status[j] == LOWER_BOUND)/*is_lower_bound(j)*/)
 		{
 			double grad_diff = Gmax + d_G[j];
-			dbgprintf(debug, "device code: j=%d, NOT LOWER, Gmax(%.10g)+G(%.10g) = grad_diff=%.10g\n", j, Gmax, d_G[j], grad_diff); // ED : DEBUG
 			if (grad_diff > 1e-4) // original: grad_diff > 0
 			{
-				CValue_t q = cuda_evalQ(i, j);
-				CValue_t quad_coef = d_QD[i] + d_QD[j] - 2.0 * d_y[i] * q;
+				CValue_t quad_coef = d_QD[i] + d_QD[j] - 2.0 * d_y[i] * cuda_evalQ(i, j);
 				CValue_t obj_diff = CVALUE_MAX;
 
 				if (quad_coef > 0) {
@@ -386,8 +383,6 @@ __global__ void cuda_compute_obj_diff(double Gmax, CValue_t *dh_obj_diff_array, 
 				}
 				CHECK_FLT_RANGE(obj_diff);
 				CHECK_FLT_INF(obj_diff);
-				dbgprintf(debug, "device code: j=%d, Q_j[j]=%.10g, quad_coef=%.10g, obj_diff=%.10g\n", 
-					j, q, quad_coef, obj_diff); // ED : DEBUG
 				dh_obj_diff_array[j] = obj_diff;
 				result_indx[j] = j;
 			}
@@ -399,11 +394,9 @@ __global__ void cuda_compute_obj_diff(double Gmax, CValue_t *dh_obj_diff_array, 
 		if (!(d_alpha_status[j] == UPPER_BOUND) /*is_upper_bound(j)*/ )
 		{
 			double grad_diff = Gmax - d_G[j];
-			dbgprintf(debug, "device code: j=%d, NOT UPPER, Gmax(%.10g)-G(%.10g) = grad_diff=%.10g\n", j, Gmax, d_G[j], grad_diff); // ED : DEBUG
 			if (grad_diff > 1e-4) // original: grad_diff > 0
 			{
-				CValue_t q = cuda_evalQ(i, j);
-				CValue_t quad_coef = d_QD[i] + d_QD[j] + 2.0 * d_y[i] * q;
+				CValue_t quad_coef = d_QD[i] + d_QD[j] + 2.0 * d_y[i] * cuda_evalQ(i, j);
 				CValue_t obj_diff = CVALUE_MAX;
 
 				if (quad_coef > 0) {
@@ -413,8 +406,6 @@ __global__ void cuda_compute_obj_diff(double Gmax, CValue_t *dh_obj_diff_array, 
 				}
 				CHECK_FLT_RANGE(obj_diff);
 				CHECK_FLT_INF(obj_diff);
-				dbgprintf(debug, "device code: j=%d, Q_i[j]=%.10g, quad_coef=%.10g, obj_diff=%.10g\n", 
-					j, q, quad_coef, obj_diff); // ED : DEBUG
 				dh_obj_diff_array[j] = obj_diff;
 				result_indx[j] = j;
 			}
@@ -437,15 +428,18 @@ __global__ void cuda_update_gradient(int N)
 	// d_G[k] += t; // Q_i[k]*delta_alpha_i + Q_j[k]*delta_alpha_j;
 }
 
-__global__ void cuda_find_gmax(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int *dh_gmax_idx, GradValue_t *result_gmax, GradValue_t *result_gmax2, int *result_gmax_idx, int N) 
+__global__ void cuda_find_gmax(find_gmax_param param, int N)
 {
-	D_GmaxFunctor func(dh_gmax, dh_gmax2, dh_gmax_idx, result_gmax, result_gmax2, result_gmax_idx); // class defined in Cuda_Reduce.h
-	device_reduce_bstride2(func, N); // Template function defined in Cuda_Reduce.h
+	D_GmaxFunctor func(param.dh_gmax, param.dh_gmax2, param.dh_gmax_idx, param.result_gmax, param.result_gmax2, param.result_gmax_idx); // class defined in CudaReducer.h
+	
+	device_block_reducer(func, N); // Template function defined in CudaReducer.h
+	
 	if (blockIdx.x == 0)
 		d_solver.x = func.return_idx();
 }
 
-__global__ void cuda_prep_gmax(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int *dh_gmax_idx,  GradValue_t *result_gmax, GradValue_t *result_gmax2, int *result_gmax_idx, int N)
+
+__global__ void cuda_prep_gmax(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int *dh_gmax_idx, int N)
 {
 	int t = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -459,10 +453,8 @@ __global__ void cuda_prep_gmax(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int 
 	if(d_y[t] == +1)	
 	{
 		if(!(d_alpha_status[t] == UPPER_BOUND) /*is_upper_bound(t)*/) {
-
 			dh_gmax[t] = -d_G[t];
 			dh_gmax_idx[t] = t;
-
 		}
 		if (!(d_alpha_status[t] == LOWER_BOUND) /*is_lower_bound(t)*/)
 		{
@@ -472,10 +464,8 @@ __global__ void cuda_prep_gmax(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int 
 	else
 	{
 		if(!(d_alpha_status[t] == LOWER_BOUND) /*is_lower_bound(t)*/) {
-
 			dh_gmax[t] = d_G[t];
 			dh_gmax_idx[t] = t;
-
 		}
 		if (!(d_alpha_status[t] == UPPER_BOUND) /*is_upper_bound(t)*/)
 		{
@@ -483,6 +473,7 @@ __global__ void cuda_prep_gmax(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int 
 		}
 	}
 }
+
 
 __device__	__forceinline__ double device_get_C(int i)
 {
@@ -608,3 +599,134 @@ __global__ void cuda_update_alpha_status()
 	device_update_alpha_status(i);
 	device_update_alpha_status(j);
 }
+
+/*********** NU Solver ************/
+__global__ void cuda_prep_nu_gmax(GradValue_t *dh_gmaxp, GradValue_t *dh_gmaxp2, GradValue_t *dh_gmaxn, GradValue_t *dh_gmaxn2,
+	int *dh_gmaxp_idx, int *dh_gmaxn_idx, int N)
+{
+	int t = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if (t >= N)
+		return;
+
+	dh_gmaxp[t] = -GRADVALUE_MAX;
+	dh_gmaxp2[t] = -GRADVALUE_MAX;
+	dh_gmaxn[t] = -GRADVALUE_MAX;
+	dh_gmaxn2[t] = -GRADVALUE_MAX;
+	dh_gmaxp_idx[t] = -1;
+	dh_gmaxn_idx[t] = -1;
+
+	if (d_y[t] == +1)
+	{
+		if (!(d_alpha_status[t] == UPPER_BOUND) /*is_upper_bound(t)*/) {
+			dh_gmaxp[t] = -d_G[t];
+			dh_gmaxp_idx[t] = t;
+		}
+		if (!(d_alpha_status[t] == LOWER_BOUND) /*is_lower_bound(t)*/)
+		{
+			dh_gmaxp2[t] = d_G[t];
+		}
+	}
+	else
+	{
+		if (!(d_alpha_status[t] == LOWER_BOUND) /*is_lower_bound(t)*/) {
+			dh_gmaxn[t] = d_G[t];
+			dh_gmaxn_idx[t] = t;
+		}
+		if (!(d_alpha_status[t] == UPPER_BOUND) /*is_upper_bound(t)*/)
+		{
+			dh_gmaxn2[t] = -d_G[t];
+		}
+	}
+}
+
+__global__ void cuda_find_nu_gmax(find_nu_gmax_param param, int N)
+{
+	D_NuGmaxFunctor func(param.dh_gmaxp, param.dh_gmaxn, param.dh_gmaxp2, param.dh_gmaxn2, param.dh_gmaxp_idx, param.dh_gmaxn_idx,
+		param.result_gmaxp, param.result_gmaxn, param.result_gmaxp2, param.result_gmaxn2, param.result_gmaxp_idx, param.result_gmaxn_idx);
+
+	device_block_reducer(func, N);
+
+	if (blockIdx.x == 0) {
+		int ip, in;
+		func.return_idx(ip, in);
+		d_nu_solver.x = ip;
+		d_nu_solver.y = in;
+	}
+}
+
+__global__ void cuda_compute_nu_obj_diff(GradValue_t Gmaxp, GradValue_t Gmaxn, CValue_t *dh_obj_diff_array, int *result_indx, int N)
+{
+	int ip = d_nu_solver.x;
+	int in = d_nu_solver.y;
+
+	int j = blockDim.x * blockIdx.x + threadIdx.x;
+	if (j >= N)
+		return;
+
+	dh_obj_diff_array[j] = CVALUE_MAX;
+	result_indx[j] = -1;
+	if (d_y[j] == 1)
+	{
+		if (!(d_alpha_status[j] == LOWER_BOUND)/*is_lower_bound(j)*/)
+		{
+			double grad_diff = Gmaxp + d_G[j];
+			if (grad_diff > 1e-4) // original: grad_diff > 0
+			{
+				CValue_t quad_coef = d_QD[ip] + d_QD[j] - 2.0 * cuda_evalQ(ip, j); // Why is this different from cuda_compute_obj_diff??
+				CValue_t obj_diff = CVALUE_MAX;
+
+				if (quad_coef > 0) {
+					obj_diff = -(grad_diff*grad_diff) / quad_coef;
+				}
+				else {
+					obj_diff = -(grad_diff*grad_diff) / TAU;
+				}
+				CHECK_FLT_RANGE(obj_diff);
+				CHECK_FLT_INF(obj_diff);
+				dh_obj_diff_array[j] = obj_diff;
+				result_indx[j] = j;
+			}
+
+		}
+	}
+	else
+	{
+		if (!(d_alpha_status[j] == UPPER_BOUND) /*is_upper_bound(j)*/)
+		{
+			double grad_diff = Gmaxn - d_G[j];
+			if (grad_diff > 1e-4) // original: grad_diff > 0
+			{
+				CValue_t quad_coef = d_QD[in] + d_QD[j] + 2.0 * cuda_evalQ(in, j); // Why is this different from cuda_compute_obj_diff??
+				CValue_t obj_diff = CVALUE_MAX;
+
+				if (quad_coef > 0) {
+					obj_diff = -(grad_diff*grad_diff) / quad_coef;
+				}
+				else {
+					obj_diff = -(grad_diff*grad_diff) / TAU;
+				}
+				CHECK_FLT_RANGE(obj_diff);
+				CHECK_FLT_INF(obj_diff);
+				dh_obj_diff_array[j] = obj_diff;
+				result_indx[j] = j;
+			}
+		}
+	}
+
+}
+
+__global__ void cuda_find_nu_min_idx(CValue_t *obj_diff_array, int *obj_diff_indx, CValue_t *result_obj_min, int *result_indx, int N)
+{
+	D_MinIdxFunctor func(obj_diff_array, obj_diff_indx, result_obj_min, result_indx); // Class defined in CudaReducer.h
+	device_block_reducer(func, N); // Template function defined in CudaReducer.h
+	if (blockIdx.x == 0) {
+		int j = func.return_idx();
+		d_solver.y = j; /* Gmin_idx */
+		if (d_y[j] == +1)
+			d_solver.x = d_nu_solver.x; /* Gmaxp_idx */
+		else
+			d_solver.x = d_nu_solver.y; /* Gmaxn_idx */	
+	}
+}
+

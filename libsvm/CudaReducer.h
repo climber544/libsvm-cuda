@@ -64,12 +64,9 @@ public:
 class D_GmaxFunctor
 {
 private:
-	GradValue_t *dh_gmax;
-	GradValue_t *dh_gmax2;
-	int *dh_gmax_idx;
-	GradValue_t *result_gmax;
-	GradValue_t *result_gmax2;
-	int *result_gmax_idx;
+	GradValue_t *dh_gmax, *result_gmax; /* Gmax */
+	GradValue_t *dh_gmax2, *result_gmax2; /* Gmax2 */
+	int *dh_gmax_idx, *result_gmax_idx; /* Gmax_idx */
 
 	/** shared memory arrays */
 	volatile GradValue_t *s_gmax;
@@ -127,8 +124,106 @@ public:
 	}
 };
 
+class D_NuGmaxFunctor
+{
+private:
+	GradValue_t *dh_gmaxp, *result_gmaxp; /* Gmaxp */
+	GradValue_t *dh_gmaxn, *result_gmaxn; /* Gmaxn */
+	GradValue_t *dh_gmaxp2, *result_gmaxp2; /* Gmaxp2 */
+	GradValue_t *dh_gmaxn2, *result_gmaxn2; /* Gmaxn2 */
+	int *dh_gmaxp_idx, *result_gmaxp_idx; /* Gmaxp_idx */
+	int *dh_gmaxn_idx, *result_gmaxn_idx; /* Gmaxn_idx */
+
+	/** shared memory arrays */
+	volatile GradValue_t *s_gmaxp;
+	volatile GradValue_t *s_gmaxn;
+	volatile GradValue_t *s_gmaxp2;
+	volatile GradValue_t *s_gmaxn2;
+	volatile int *s_gmaxp_idx;
+	volatile int *s_gmaxn_idx;
+
+public:
+	__device__ D_NuGmaxFunctor(GradValue_t *dh_gmaxp, GradValue_t *dh_gmaxn, GradValue_t *dh_gmaxp2, GradValue_t *dh_gmaxn2, 
+		int *dh_gmaxp_idx, int *dh_gmaxn_idx,
+		GradValue_t *result_gmaxp, GradValue_t *result_gmaxn, GradValue_t *result_gmaxp2, GradValue_t *result_gmaxn2,
+		int *result_gmaxp_idx, int *result_gmaxn_idx)
+		: dh_gmaxp(dh_gmaxp), dh_gmaxn(dh_gmaxn), dh_gmaxp_idx(dh_gmaxp_idx), dh_gmaxn_idx(dh_gmaxn_idx),
+		result_gmaxp(result_gmaxp), result_gmaxn(result_gmaxn), 
+		result_gmaxp_idx(result_gmaxp_idx), result_gmaxn_idx(result_gmaxn_idx)
+	{
+		s_gmaxp = (GradValue_t *)&ss[0];
+		s_gmaxn = (GradValue_t *)&ss[sizeof(GradValue_t)*blockDim.x];
+		s_gmaxp2 = (GradValue_t *)&ss[2 * sizeof(GradValue_t)*blockDim.x];
+		s_gmaxn2 = (GradValue_t *)&ss[3 * sizeof(GradValue_t)*blockDim.x];
+		s_gmaxp_idx = (int *)&ss[4 * sizeof(GradValue_t)*blockDim.x];
+		s_gmaxn_idx = (int *)&ss[4 * sizeof(GradValue_t)*blockDim.x + sizeof(int)*blockDim.x];
+	}
+
+	__device__ void block_out_of_range(const int &bid)
+	{}
+
+	__device__ void load_shared_memory(const int &tid, const int &g_idx, const int &p_idx, const int &N)
+	{
+		s_gmaxp[tid] = dh_gmaxp[g_idx];
+		s_gmaxp_idx[tid] = dh_gmaxp_idx[g_idx];
+		s_gmaxn[tid] = dh_gmaxn[g_idx];
+		s_gmaxn_idx[tid] = dh_gmaxn_idx[g_idx];
+		s_gmaxp2[tid] = dh_gmaxp2[g_idx];
+		s_gmaxn2[tid] = dh_gmaxn2[g_idx];
+
+		if (p_idx < N) {
+			if (s_gmaxp[tid] < dh_gmaxp[p_idx] ||
+				(s_gmaxp[tid] == dh_gmaxp[p_idx] && s_gmaxp_idx[tid] < dh_gmaxp_idx[p_idx])) {
+				s_gmaxp[tid] = dh_gmaxp[p_idx];
+				s_gmaxp_idx[tid] = dh_gmaxp_idx[p_idx];
+			}
+			if (s_gmaxn[tid] < dh_gmaxn[p_idx] ||
+				(s_gmaxn[tid] == dh_gmaxn[p_idx] && s_gmaxn_idx[tid] < dh_gmaxn_idx[p_idx])) {
+				s_gmaxn[tid] = dh_gmaxn[p_idx];
+				s_gmaxn_idx[tid] = dh_gmaxn_idx[p_idx];
+			}
+			if (s_gmaxp2[tid] < dh_gmaxp2[p_idx])
+				s_gmaxp2[tid] = dh_gmaxp2[p_idx];
+			if (s_gmaxn2[tid] < dh_gmaxn2[p_idx])
+				s_gmaxn2[tid] = dh_gmaxn2[p_idx];
+		}
+	}
+
+	__device__ void reduce(const int &tid1, const int &tid2)
+	{
+		if (s_gmaxp[tid2] >  s_gmaxp[tid1] ||
+			(s_gmaxp[tid2] == s_gmaxp[tid1] && s_gmaxp_idx[tid2] > s_gmaxp_idx[tid1])) {
+			s_gmaxp[tid1] = s_gmaxp[tid2];
+			s_gmaxp_idx[tid1] = s_gmaxp_idx[tid2];
+		}
+		if (s_gmaxn[tid2] >  s_gmaxn[tid1] ||
+			(s_gmaxn[tid2] == s_gmaxn[tid1] && s_gmaxn_idx[tid2] > s_gmaxn_idx[tid1])) {
+			s_gmaxn[tid1] = s_gmaxn[tid2];
+			s_gmaxn_idx[tid1] = s_gmaxn_idx[tid2];
+		}
+		if (s_gmaxp2[tid2] > s_gmaxp2[tid1])
+			s_gmaxp2[tid1] = s_gmaxp2[tid2];
+		if (s_gmaxn2[tid2] > s_gmaxn2[tid1])
+			s_gmaxn2[tid1] = s_gmaxn2[tid2];
+	}
+
+	__device__ void store_result(const int &bid) {
+		result_gmaxp_idx[bid] = s_gmaxp_idx[0];
+		result_gmaxn_idx[bid] = s_gmaxn_idx[0];
+		result_gmaxp[bid] = s_gmaxp[0];
+		result_gmaxn[bid] = s_gmaxn[0];
+		result_gmaxp2[bid] = s_gmaxp2[0];
+		result_gmaxn2[bid] = s_gmaxn2[0];
+	}
+
+	__device__ void return_idx(int &gmaxp_idx, int &gmaxn_idx) {
+		gmaxp_idx = s_gmaxp_idx[0];
+		gmaxn_idx = s_gmaxn_idx[0];
+	}
+};
+
 template <class T>
-__device__ void device_reduce_bstride2(T &f, int N) 
+__device__ void device_block_reducer(T &f, int N) 
 {
 	int g_indx = (blockDim.x * 2) * blockIdx.x + threadIdx.x;
 
