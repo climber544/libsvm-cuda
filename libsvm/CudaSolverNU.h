@@ -7,7 +7,7 @@ Cuda implementation of NU SMO solver
 
 #include "CudaSolver.h"
 
-class CudaNuSolver : public CudaSolver
+class CudaSolverNU : public CudaSolver
 {
 private:
 	/**
@@ -35,7 +35,7 @@ private:
 	void select_working_set_j(GradValue_t Gmaxp, GradValue_t Gmaxn, int l); 
 
 public:
-	CudaNuSolver(const svm_problem &prob, const svm_parameter &param) :
+	CudaSolverNU(const svm_problem &prob, const svm_parameter &param) :
 		CudaSolver(prob, param) {}
 
 	virtual int select_working_set(int &out_i, int &out_j, int l); // overrides the version in CudaSolver

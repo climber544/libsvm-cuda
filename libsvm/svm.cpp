@@ -10,7 +10,7 @@
 #include "svm.h"
 
 #include "CudaSolver.h" // CUDA INTEGRATION
-#include "CudaNuSolver.h" // CUDA INTEGRATION
+#include "CudaSolverNU.h" // CUDA INTEGRATION
 
 int libsvm_version = LIBSVM_VERSION;
 typedef float Qfloat;
@@ -1690,7 +1690,7 @@ static decision_function svm_train_one(
 	double *alpha = Malloc(double, prob->l);
 	if (param->cuda_flag == 1) { // CUDA INTEGRATION
 		if (param->svm_type == NU_SVC || param->svm_type == NU_SVR) {
-			cudaSolver = new CudaNuSolver(*prob, *param);
+			cudaSolver = new CudaSolverNU(*prob, *param); // nu-solver
 		} else {
 			cudaSolver = new CudaSolver(*prob, *param);  
 		}

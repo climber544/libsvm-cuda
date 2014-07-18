@@ -1,8 +1,8 @@
-#include "CudaNuSolver.h"
+#include "CudaSolverNU.h"
 #include "svm_device.h"
 
 /*********** NuGmaxFunctor ****************/
-class CudaNuSolver::NuGmaxFunctor // class object used for cross_block_reducer() template function
+class CudaSolverNU::NuGmaxFunctor // class object used for cross_block_reducer() template function
 {
 private:
 	GradValue_t *input_array1, *output_array1; // Gmaxp
@@ -82,7 +82,7 @@ public:
 };
 
 /********* NuMinIdxFunctor **************/
-class CudaNuSolver::NuMinIdxFunctor
+class CudaSolverNU::NuMinIdxFunctor
 {
 private:
 	CValue_t *input_array, *output_array;
@@ -113,7 +113,7 @@ public:
 	}
 };
 
-void CudaNuSolver::init_gmax_space(int l)
+void CudaSolverNU::init_gmax_space(int l)
 {
 	dh_gmaxp = make_unique_cuda_array<GradValue_t>(l);
 	dh_gmaxn = make_unique_cuda_array<GradValue_t>(l);
@@ -131,7 +131,7 @@ void CudaNuSolver::init_gmax_space(int l)
 	return;
 }
 
-void CudaNuSolver::select_working_set_j(GradValue_t Gmaxp, GradValue_t Gmaxn, int l)
+void CudaSolverNU::select_working_set_j(GradValue_t Gmaxp, GradValue_t Gmaxn, int l)
 {
 	cuda_compute_nu_obj_diff << <num_blocks, block_size >> >(Gmaxp, Gmaxn, &dh_obj_diff_array[0], &dh_obj_diff_idx[0], l);
 
@@ -142,7 +142,7 @@ void CudaNuSolver::select_working_set_j(GradValue_t Gmaxp, GradValue_t Gmaxn, in
 	return ;
 }
 
-int CudaNuSolver::select_working_set(int &out_i, int &out_j, int l)
+int CudaSolverNU::select_working_set(int &out_i, int &out_j, int l)
 {
 	GradValue_t Gmaxp = -GRADVALUE_MAX;
 	GradValue_t Gmaxp2 = -GRADVALUE_MAX;
