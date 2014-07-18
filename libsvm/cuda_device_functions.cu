@@ -673,7 +673,7 @@ __global__ void cuda_compute_nu_obj_diff(GradValue_t Gmaxp, GradValue_t Gmaxn, C
 			double grad_diff = Gmaxp + d_G[j];
 			if (grad_diff > 1e-4) // original: grad_diff > 0
 			{
-				CValue_t quad_coef = d_QD[ip] + d_QD[j] - 2.0 * cuda_evalQ(ip, j); // Why is this different from cuda_compute_obj_diff??
+				CValue_t quad_coef = d_QD[ip] + d_QD[j] - 2.0 * cuda_evalQ(ip, j); 
 				CValue_t obj_diff = CVALUE_MAX;
 
 				if (quad_coef > 0) {
@@ -697,7 +697,7 @@ __global__ void cuda_compute_nu_obj_diff(GradValue_t Gmaxp, GradValue_t Gmaxn, C
 			double grad_diff = Gmaxn - d_G[j];
 			if (grad_diff > 1e-4) // original: grad_diff > 0
 			{
-				CValue_t quad_coef = d_QD[in] + d_QD[j] + 2.0 * cuda_evalQ(in, j); // Why is this different from cuda_compute_obj_diff??
+				CValue_t quad_coef = d_QD[in] + d_QD[j] - 2.0 * cuda_evalQ(in, j); 
 				CValue_t obj_diff = CVALUE_MAX;
 
 				if (quad_coef > 0) {
