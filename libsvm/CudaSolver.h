@@ -60,10 +60,10 @@ typedef float CValue_t;
 
 #define CUDA_BLOCK_SIZE	256
 
-//typedef double GradValue_t;
-//#define GRADVALUE_MAX	DBL_MAX
-typedef float GradValue_t;
-#define GRADVALUE_MAX FLT_MAX
+typedef double GradValue_t;
+#define GRADVALUE_MAX	DBL_MAX
+//typedef float GradValue_t;
+//#define GRADVALUE_MAX FLT_MAX
 
 /**
 cuda_svm_node.x == svm_node.index

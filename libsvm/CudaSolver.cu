@@ -228,7 +228,7 @@ void CudaSolver::load_problem_parameters(const svm_problem &prob, const svm_para
 		const svm_node *tmp = x[i];
 		while (tmp->index != -1) {
 			x_space[j].x = static_cast<float>(tmp->index);
-			x_space[j].y = static_cast<CValue_t>(tmp->value);
+			x_space[j].y = static_cast<float>(tmp->value);
 #ifdef DEBUG_VERIFY
 			if (abs(tmp->value - x_space[j].y) > 1e-4) {
 				std::cerr << "WARNING!: sample space value truncated by "

@@ -258,8 +258,6 @@ void parse_command_line(int argc, char **argv, char *input_file_name, char *mode
 	}
 
 	if (param.cuda_flag == 1) { // CUDA INTEGRATION
-		if (param.shrinking > 1) 
-			fprintf(stderr, "Sorry cuda integration does not support shrinking.  Turning it off... \n");
 		param.shrinking = 0;
 	}
 

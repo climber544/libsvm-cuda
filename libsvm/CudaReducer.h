@@ -34,14 +34,14 @@ public:
 		result_indx[bid] = -1;
 	}
 
-	__device__ void load_shared_memory(const int &tid, const int &g_indx, const int &p_indx, const int &N)
+	__device__ void load_shared_memory(const int &tid, const int &g_idx, const int &p_idx, const int &N)
 	{
-		s_obj_diff[tid] = obj_diff_array[g_indx];
-		s_indx[tid] = obj_diff_indx[g_indx];
-		if (p_indx < N) {
-			if (obj_diff_array[p_indx] <= obj_diff_array[g_indx]) {
-				s_obj_diff[tid] = obj_diff_array[p_indx];
-				s_indx[tid] = obj_diff_indx[p_indx];
+		s_obj_diff[tid] = obj_diff_array[g_idx];
+		s_indx[tid] = obj_diff_indx[g_idx];
+		if (p_idx < N) {
+			if (obj_diff_array[p_idx] <= obj_diff_array[g_idx]) {
+				s_obj_diff[tid] = obj_diff_array[p_idx];
+				s_indx[tid] = obj_diff_indx[p_idx];
 			}
 		}
 	}
@@ -89,19 +89,19 @@ public:
 	__device__ void block_out_of_range(const int &bid)
 	{}
 
-	__device__ void load_shared_memory(const int &tid, const int &g_indx, const int &p_indx, const int &N)
+	__device__ void load_shared_memory(const int &tid, const int &g_idx, const int &p_idx, const int &N)
 	{
-		s_gmax[tid] = dh_gmax[g_indx];
-		s_gmax_idx[tid] = dh_gmax_idx[g_indx];
-		s_gmax2[tid] = dh_gmax2[g_indx];
-		if (p_indx < N) {
-			if (s_gmax[tid] < dh_gmax[p_indx] ||
-				(s_gmax[tid] == dh_gmax[p_indx] && s_gmax_idx[tid] < dh_gmax_idx[p_indx])) {
-					s_gmax[tid] = dh_gmax[p_indx];
-					s_gmax_idx[tid] = dh_gmax_idx[p_indx];
+		s_gmax[tid] = dh_gmax[g_idx];
+		s_gmax_idx[tid] = dh_gmax_idx[g_idx];
+		s_gmax2[tid] = dh_gmax2[g_idx];
+		if (p_idx < N) {
+			if (s_gmax[tid] < dh_gmax[p_idx] ||
+				(s_gmax[tid] == dh_gmax[p_idx] && s_gmax_idx[tid] < dh_gmax_idx[p_idx])) {
+					s_gmax[tid] = dh_gmax[p_idx];
+					s_gmax_idx[tid] = dh_gmax_idx[p_idx];
 			}
-			if (s_gmax2[tid] < dh_gmax2[p_indx])
-				s_gmax2[tid] = dh_gmax2[p_indx];
+			if (s_gmax2[tid] < dh_gmax2[p_idx])
+				s_gmax2[tid] = dh_gmax2[p_idx];
 		}
 	}
 
@@ -232,19 +232,19 @@ public:
 template <class T>
 __device__ void device_block_reducer(T &f, int N) 
 {
-	int g_indx = (blockDim.x * 2) * blockIdx.x + threadIdx.x;
+	int g_idx = (blockDim.x * 2) * blockIdx.x + threadIdx.x;
 
-	if (g_indx >= N) {
+	if (g_idx >= N) {
 		if (threadIdx.x == 0) {
 			f.block_out_of_range(blockIdx.x);
 		}
 		return ;
 	}
 
-	int p_indx;
-	p_indx = g_indx + blockDim.x; // calculate pair-wise index into the next block
+	int p_idx;
+	p_idx = g_idx + blockDim.x; // calculate pair-wise index into the next block
 
-	f.load_shared_memory(threadIdx.x, g_indx, p_indx, N);
+	f.load_shared_memory(threadIdx.x, g_idx, p_idx, N);
 
 	__syncthreads();
 
@@ -253,9 +253,9 @@ __device__ void device_block_reducer(T &f, int N)
 		if (threadIdx.x < halfPoint) {
 			int thread2 = threadIdx.x + halfPoint;
 
-			p_indx = (blockDim.x * 2) * blockIdx.x + thread2;
+			p_idx = (blockDim.x * 2) * blockIdx.x + thread2;
 
-			if (p_indx < N) {// check if pair-wise index is within valid range 
+			if (p_idx < N) {// check if pair-wise index is within valid range 
 				f.reduce(threadIdx.x, thread2);
 			}
 		}
@@ -264,19 +264,19 @@ __device__ void device_block_reducer(T &f, int N)
 	}
 
 	if (threadIdx.x < 32) {
-		p_indx = (blockDim.x * 2 ) * blockIdx.x + (threadIdx.x + 32);
+		p_idx = (blockDim.x * 2 ) * blockIdx.x + (threadIdx.x + 32);
 
-		if (p_indx < N) f.reduce(threadIdx.x, threadIdx.x+32);
-		p_indx -= 16;
-		if (p_indx < N) f.reduce(threadIdx.x, threadIdx.x+16);
-		p_indx -= 8;
-		if (p_indx < N) f.reduce(threadIdx.x, threadIdx.x+8);
-		p_indx -= 4;
-		if (p_indx < N) f.reduce(threadIdx.x, threadIdx.x+4);
-		p_indx -= 2;
-		if (p_indx < N) f.reduce(threadIdx.x, threadIdx.x+2);
-		p_indx -= 1;
-		if (p_indx < N) f.reduce(threadIdx.x, threadIdx.x+1);
+		if (p_idx < N) f.reduce(threadIdx.x, threadIdx.x+32);
+		p_idx -= 16;
+		if (p_idx < N) f.reduce(threadIdx.x, threadIdx.x+16);
+		p_idx -= 8;
+		if (p_idx < N) f.reduce(threadIdx.x, threadIdx.x+8);
+		p_idx -= 4;
+		if (p_idx < N) f.reduce(threadIdx.x, threadIdx.x+4);
+		p_idx -= 2;
+		if (p_idx < N) f.reduce(threadIdx.x, threadIdx.x+2);
+		p_idx -= 1;
+		if (p_idx < N) f.reduce(threadIdx.x, threadIdx.x+1);
 	}
 
 	if (threadIdx.x == 0) {
