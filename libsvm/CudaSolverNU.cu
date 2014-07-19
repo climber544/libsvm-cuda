@@ -29,7 +29,7 @@ public:
 
 	void compute(size_t reduce_blocks, size_t reduce_block_size, int N) {
 
-		size_t share_mem_size = reduce_block_size*(4 * sizeof(GradValue_t) + 2 * sizeof(int));
+		size_t share_mem_size = reduce_block_size * (4 * sizeof(GradValue_t) + 2 * sizeof(int));
 
 		find_nu_gmax_param param;
 		param.dh_gmaxp = input_array1;
@@ -61,13 +61,13 @@ public:
 	int process_output() {
 		/* check_cuda_return("fail to copy output_idx from device",
 		cudaMemcpy(&Gmax_idx, &output_idx[0], sizeof(int), cudaMemcpyDeviceToHost)); */ // Gmax_idx should be in the first position now
-		CudaSolver::check_cuda_return("fail to copy output_array1 from device",
+		check_cuda_return("fail to copy output_array1 from device",
 			cudaMemcpy(&Gmaxp, &output_array1[0], sizeof(GradValue_t), cudaMemcpyDeviceToHost));
-		CudaSolver::check_cuda_return("fail to copy output_array2 from device",
+		check_cuda_return("fail to copy output_array2 from device",
 			cudaMemcpy(&Gmaxn, &output_array2[0], sizeof(GradValue_t), cudaMemcpyDeviceToHost));
-		CudaSolver::check_cuda_return("fail to copy output_array1 from device",
+		check_cuda_return("fail to copy output_array1 from device",
 			cudaMemcpy(&Gmaxp2, &output_array3[0], sizeof(GradValue_t), cudaMemcpyDeviceToHost));
-		CudaSolver::check_cuda_return("fail to copy output_array2 from device",
+		check_cuda_return("fail to copy output_array2 from device",
 			cudaMemcpy(&Gmaxn2, &output_array4[0], sizeof(GradValue_t), cudaMemcpyDeviceToHost));
 		return 0;
 	}
@@ -121,6 +121,7 @@ void CudaSolverNU::init_gmax_space(int l)
 	dh_gmaxn2 = make_unique_cuda_array<GradValue_t>(l);
 	dh_gmaxp_idx = make_unique_cuda_array<int>(l);
 	dh_gmaxn_idx = make_unique_cuda_array<int>(l);
+
 	dh_result_gmaxp = make_unique_cuda_array<GradValue_t>(num_blocks);
 	dh_result_gmaxn = make_unique_cuda_array<GradValue_t>(num_blocks);
 	dh_result_gmaxp2 = make_unique_cuda_array<GradValue_t>(num_blocks);

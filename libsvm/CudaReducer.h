@@ -151,9 +151,12 @@ public:
 		int *dh_gmaxp_idx, int *dh_gmaxn_idx,
 		GradValue_t *result_gmaxp, GradValue_t *result_gmaxn, GradValue_t *result_gmaxp2, GradValue_t *result_gmaxn2,
 		int *result_gmaxp_idx, int *result_gmaxn_idx)
-		: dh_gmaxp(dh_gmaxp), dh_gmaxn(dh_gmaxn), dh_gmaxp_idx(dh_gmaxp_idx), dh_gmaxn_idx(dh_gmaxn_idx),
-		result_gmaxp(result_gmaxp), result_gmaxn(result_gmaxn), 
-		result_gmaxp_idx(result_gmaxp_idx), result_gmaxn_idx(result_gmaxn_idx)
+		: dh_gmaxp(dh_gmaxp), result_gmaxp(result_gmaxp), /* Gmaxp */
+		dh_gmaxn(dh_gmaxn), result_gmaxn(result_gmaxn), /* Gmaxn */
+		dh_gmaxp2(dh_gmaxp2), result_gmaxp2(result_gmaxp2), /* Gmaxp2 */
+		dh_gmaxn2(dh_gmaxn2), result_gmaxn2(result_gmaxn2), /* Gmaxn2 */
+		dh_gmaxp_idx(dh_gmaxp_idx), result_gmaxp_idx(result_gmaxp_idx), /* Gmaxp_idx */
+		dh_gmaxn_idx(dh_gmaxn_idx), result_gmaxn_idx(result_gmaxn_idx) /* Gmaxn_idx */
 	{
 		s_gmaxp = (GradValue_t *)&ss[0];
 		s_gmaxn = (GradValue_t *)&ss[sizeof(GradValue_t)*blockDim.x];

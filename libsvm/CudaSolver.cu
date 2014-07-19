@@ -75,9 +75,9 @@ public:
 		/* int Gmax_idx = -1;
 		   check_cuda_return("fail to copy output_idx from device",
 		   cudaMemcpy(&Gmax_idx, &output_idx[0], sizeof(int), cudaMemcpyDeviceToHost)); */
-		CudaSolver::check_cuda_return("fail to copy output_array1 from device",
+		check_cuda_return("fail to copy output_array1 from device",
 			cudaMemcpy(&Gmax, &output_array1[0], sizeof(GradValue_t), cudaMemcpyDeviceToHost));
-		CudaSolver::check_cuda_return("fail to copy output_array2 from device",
+		check_cuda_return("fail to copy output_array2 from device",
 			cudaMemcpy(&Gmax2, &output_array2[0], sizeof(GradValue_t), cudaMemcpyDeviceToHost));
 		return -1;
 	}

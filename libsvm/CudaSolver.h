@@ -73,19 +73,19 @@ typedef float2 cuda_svm_node;
 
 #define TAU 1e-12
 
+static inline void _check_cuda_return(const char *msg, cudaError_t err, char *file, int line)
+{
+	if (err != cudaSuccess) {
+		std::cerr << "CUDA Error (" << file << ":" << line << "): ";
+		std::cerr << msg << " " << cudaGetErrorString(err) << std::endl;
+		cudaDeviceReset();
+		throw std::runtime_error(msg);
+	}
+}
+#define check_cuda_return(msg, err)	{	_check_cuda_return(msg, err, __FILE__, __LINE__); }
+
 class CudaSolver
 {
-protected:
-	static inline void check_cuda_return(const char *msg, cudaError_t err)
-	{
-		if (err != cudaSuccess) {
-			std::cerr << "CUDA Error (" << __FILE__ << ":" << __LINE__ << "): ";
-			std::cerr << msg << " " << cudaGetErrorString(err) << std::endl;
-			cudaDeviceReset();
-			throw std::runtime_error(msg);
-		}
-	}
-
 protected:
 
 	/**
