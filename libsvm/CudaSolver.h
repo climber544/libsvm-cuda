@@ -13,6 +13,7 @@ Cuda implementation of SMO solver
 #include <iostream>
 #include <stdexcept>
 #include <memory>
+#include <ctime>
 
 #ifdef __CUDACC__
 #define ALIGN(x)  __align__(x)
@@ -89,8 +90,8 @@ class CudaSolver
 protected:
 
 	/**
-	Cross cuda block reducers -- every device function only reducers per block
-	We need to reduce across blocks as well
+	Cross cuda block reducer -- device function only performs a reduction per block
+	This function orchestrates the device functions to reduce across blocks 
 	*/
 	template <class T>
 	int cross_block_reducer(int def_block_size, T &f, int N)
@@ -187,6 +188,7 @@ protected:
 	int svm_type;
 
 	int mem_size; // amount of cuda memory allocated
+	int startup_time;
 
 	/**
 	CUDA device memory arrays
@@ -223,7 +225,6 @@ protected:
 	enum { LOWER_BOUND = 0, UPPER_BOUND = 1, FREE = 2 };
 
 private:
-
 	/**
 	Initializes the cuda device memory array
 	*/

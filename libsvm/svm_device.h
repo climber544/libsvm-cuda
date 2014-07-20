@@ -18,6 +18,8 @@ __global__ void cuda_compute_obj_diff(GradValue_t Gmax, CValue_t *dh_obj_diff_ar
 
 __global__ void cuda_update_gradient(int N);
 
+__global__ void cuda_init_gradient(int start, int step, int N);
+
 __global__ void cuda_prep_gmax(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int *dh_gmax_idx, int N);
 
 struct find_gmax_param

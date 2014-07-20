@@ -174,9 +174,9 @@ __device__ CValue_t dot(int i, int j)
 	cuda_svm_node y = get_col_value(j_col);
 
 	double sum = 0;
-	while(x.x != -1 && y.x != -1)
+	while (x.x != -1 && y.x != -1)
 	{
-		if(x.index == y.index)
+		if (x.index == y.index)
 		{
 			sum += x.value * y.value;
 			x = get_col_value(++i_col);
@@ -185,19 +185,20 @@ __device__ CValue_t dot(int i, int j)
 		else
 		{
 
-			if(x.index > y.index) {
+			if (x.index > y.index) {
 				y = get_col_value(++j_col);
-			} else {
+			}
+			else {
 				x = get_col_value(++i_col);
 			}
-		}			
+		}
 	}
 	return sum;
 }
 
 __device__ CValue_t device_kernel_rbf(int i, int j)
 {
-	double q = d_x_square[i] + d_x_square[j] - 2 * dot(i,j);
+	double q = d_x_square[i] + d_x_square[j] - 2 * dot(i, j);
 	dbgprintf(false, "cuda_eval_kernel: x_square[%d]=%.10g x_square[%d]=%.10g q=%.10g\n",
 		i, d_x_square[i], j, d_x_square[j], q);
 	return exp(-d_gamma * q);
@@ -205,12 +206,12 @@ __device__ CValue_t device_kernel_rbf(int i, int j)
 
 __device__ CValue_t device_kernel_poly(int i, int j)
 {
-	return pow(d_gamma * dot(i,j) + d_coef0, d_degree);
+	return pow(d_gamma * dot(i, j) + d_coef0, d_degree);
 }
 
 __device__ CValue_t device_kernel_sigmoid(int i, int j)
 {
-	return tanh(d_gamma * dot(i,j) + d_coef0);
+	return tanh(d_gamma * dot(i, j) + d_coef0);
 }
 
 __device__ CValue_t device_kernel_linear(int i, int j)
@@ -223,14 +224,14 @@ __device__ CValue_t device_kernel_precomputed(int i, int j)
 	int i_col = d_x[i];
 	int j_col = d_x[j];
 	int offset = static_cast<int>(get_col_value(j_col).y);
-	return get_col_value(i_col+offset).y;
+	return get_col_value(i_col + offset).y;
 	// return x[i][(int)(x[j][0].value)].value;
 }
 
 __device__ CValue_t cuda_evalQ(int i, int j)
 {
-	CValue_t q = 0; 
-	switch(d_kernel_type)
+	CValue_t q = 0;
+	switch (d_kernel_type)
 	{
 	case RBF:
 		q = device_kernel_rbf(i, j);
@@ -249,7 +250,7 @@ __device__ CValue_t cuda_evalQ(int i, int j)
 		break;
 	}
 
-	switch (d_svm_type) 
+	switch (d_svm_type)
 	{
 	case C_SVC:
 	case NU_SVC:
@@ -267,7 +268,7 @@ __device__ CValue_t cuda_evalQ(int i, int j)
 	}
 }
 
-__global__ void cuda_find_min_idx(CValue_t *obj_diff_array, int *obj_diff_indx, CValue_t *result_obj_min, int *result_indx, int N) 
+__global__ void cuda_find_min_idx(CValue_t *obj_diff_array, int *obj_diff_indx, CValue_t *result_obj_min, int *result_indx, int N)
 {
 	D_MinIdxFunctor func(obj_diff_array, obj_diff_indx, result_obj_min, result_indx); // Class defined in CudaReducer.h
 	device_block_reducer(func, N); // Template function defined in CudaReducer.h
@@ -281,24 +282,25 @@ __global__ void cuda_compute_obj_diff(GradValue_t Gmax, CValue_t *dh_obj_diff_ar
 
 	int j = blockDim.x * blockIdx.x + threadIdx.x;
 	if (j >= N)
-		return ;
+		return;
 
 	dh_obj_diff_array[j] = CVALUE_MAX;
 	result_indx[j] = -1;
-	if(d_y[j] == 1)
+	if (d_y[j] == 1)
 	{
 		if (!(d_alpha_status[j] == LOWER_BOUND)/*is_lower_bound(j)*/)
 		{
 			double grad_diff = Gmax + d_G[j];
-			if (grad_diff > 1e-4) // original: grad_diff > 0
+			if (grad_diff > 1e-6) // original: grad_diff > 0
 			{
 				CValue_t quad_coef = d_QD[i] + d_QD[j] - 2.0 * d_y[i] * cuda_evalQ(i, j);
 				CValue_t obj_diff = CVALUE_MAX;
 
 				if (quad_coef > 0) {
-					obj_diff = -(grad_diff*grad_diff)/quad_coef;
-				} else {
-					obj_diff = -(grad_diff*grad_diff)/TAU;
+					obj_diff = -(grad_diff*grad_diff) / quad_coef;
+				}
+				else {
+					obj_diff = -(grad_diff*grad_diff) / TAU;
 				}
 				CHECK_FLT_RANGE(obj_diff);
 				CHECK_FLT_INF(obj_diff);
@@ -310,18 +312,19 @@ __global__ void cuda_compute_obj_diff(GradValue_t Gmax, CValue_t *dh_obj_diff_ar
 	}
 	else
 	{
-		if (!(d_alpha_status[j] == UPPER_BOUND) /*is_upper_bound(j)*/ )
+		if (!(d_alpha_status[j] == UPPER_BOUND) /*is_upper_bound(j)*/)
 		{
 			double grad_diff = Gmax - d_G[j];
-			if (grad_diff > 1e-4) // original: grad_diff > 0
+			if (grad_diff > 1e-6) // original: grad_diff > 0
 			{
 				CValue_t quad_coef = d_QD[i] + d_QD[j] + 2.0 * d_y[i] * cuda_evalQ(i, j);
 				CValue_t obj_diff = CVALUE_MAX;
 
 				if (quad_coef > 0) {
-					obj_diff = -(grad_diff*grad_diff)/quad_coef;
-				} else {
-					obj_diff = -(grad_diff*grad_diff)/TAU;
+					obj_diff = -(grad_diff*grad_diff) / quad_coef;
+				}
+				else {
+					obj_diff = -(grad_diff*grad_diff) / TAU;
 				}
 				CHECK_FLT_RANGE(obj_diff);
 				CHECK_FLT_INF(obj_diff);
@@ -347,12 +350,30 @@ __global__ void cuda_update_gradient(int N)
 	// d_G[k] += t; // Q_i[k]*delta_alpha_i + Q_j[k]*delta_alpha_j;
 }
 
+__global__ void cuda_init_gradient(int start, int step, int N)
+{
+	int j = blockIdx.x * blockDim.x + threadIdx.x;
+	if (j >= N)
+		return;
+
+	GradValue_t acc = 0;
+	for (int i = start; i < N && i < start + step; ++i)
+	{
+		if (!(d_alpha_status[i] == LOWER_BOUND) /*is_lower_bound(i)*/)
+		{
+			acc += d_alpha[i] * cuda_evalQ(i, j);
+		}
+	}
+	
+	d_G[j] += acc;
+}
+
 __global__ void cuda_find_gmax(find_gmax_param param, int N)
 {
 	D_GmaxFunctor func(param.dh_gmax, param.dh_gmax2, param.dh_gmax_idx, param.result_gmax, param.result_gmax2, param.result_gmax_idx); // class defined in CudaReducer.h
-	
+
 	device_block_reducer(func, N); // Template function defined in CudaReducer.h
-	
+
 	if (blockIdx.x == 0)
 		d_solver.x = func.return_idx();
 }
@@ -363,15 +384,15 @@ __global__ void cuda_prep_gmax(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int 
 	int t = blockIdx.x * blockDim.x + threadIdx.x;
 
 	if (t >= N)
-		return ;
+		return;
 
 	dh_gmax[t] = -GRADVALUE_MAX;
 	dh_gmax2[t] = -GRADVALUE_MAX;
 	dh_gmax_idx[t] = -1;
 
-	if(d_y[t] == +1)	
+	if (d_y[t] == +1)
 	{
-		if(!(d_alpha_status[t] == UPPER_BOUND) /*is_upper_bound(t)*/) {
+		if (!(d_alpha_status[t] == UPPER_BOUND) /*is_upper_bound(t)*/) {
 			dh_gmax[t] = -d_G[t];
 			dh_gmax_idx[t] = t;
 		}
@@ -381,7 +402,7 @@ __global__ void cuda_prep_gmax(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int 
 	}
 	else
 	{
-		if(!(d_alpha_status[t] == LOWER_BOUND) /*is_lower_bound(t)*/) {
+		if (!(d_alpha_status[t] == LOWER_BOUND) /*is_lower_bound(t)*/) {
 			dh_gmax[t] = d_G[t];
 			dh_gmax_idx[t] = t;
 		}
@@ -394,7 +415,7 @@ __global__ void cuda_prep_gmax(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int 
 
 __device__	__forceinline__ double device_get_C(int i)
 {
-	return (d_y[i] > 0)? d_Cp : d_Cn;
+	return (d_y[i] > 0) ? d_Cp : d_Cn;
 }
 
 __global__ void cuda_compute_alpha()
@@ -408,19 +429,19 @@ __global__ void cuda_compute_alpha()
 	GradValue_t old_alpha_i = d_alpha[i];
 	GradValue_t old_alpha_j = d_alpha[j];
 
-	if(d_y[i] != d_y[j])
+	if (d_y[i] != d_y[j])
 	{
 		GradValue_t quad_coef = d_QD[i] + d_QD[j] + 2 * cuda_evalQ(i, j); //  Q_i[j];
 		if (quad_coef <= 0)
 			quad_coef = TAU;
-		GradValue_t delta = (-d_G[i] - d_G[j])/quad_coef;
+		GradValue_t delta = (-d_G[i] - d_G[j]) / quad_coef;
 		GradValue_t diff = d_alpha[i] - d_alpha[j];
 		d_alpha[i] += delta;
 		d_alpha[j] += delta;
 
-		if(diff > 0)
+		if (diff > 0)
 		{
-			if(d_alpha[j] < 0)
+			if (d_alpha[j] < 0)
 			{
 				d_alpha[j] = 0;
 				d_alpha[i] = diff;
@@ -428,15 +449,15 @@ __global__ void cuda_compute_alpha()
 		}
 		else
 		{
-			if(d_alpha[i] < 0)
+			if (d_alpha[i] < 0)
 			{
 				d_alpha[i] = 0;
 				d_alpha[j] = -diff;
 			}
 		}
-		if(diff > C_i - C_j)
+		if (diff > C_i - C_j)
 		{
-			if(d_alpha[i] > C_i)
+			if (d_alpha[i] > C_i)
 			{
 				d_alpha[i] = C_i;
 				d_alpha[j] = C_i - diff;
@@ -444,7 +465,7 @@ __global__ void cuda_compute_alpha()
 		}
 		else
 		{
-			if(d_alpha[j] > C_j)
+			if (d_alpha[j] > C_j)
 			{
 				d_alpha[j] = C_j;
 				d_alpha[i] = C_j + diff;
@@ -456,14 +477,14 @@ __global__ void cuda_compute_alpha()
 		GradValue_t quad_coef = d_QD[i] + d_QD[j] - 2 * cuda_evalQ(i, j); // Q_i[j];
 		if (quad_coef <= 0)
 			quad_coef = TAU;
-		GradValue_t delta = (d_G[i]-d_G[j])/quad_coef;
+		GradValue_t delta = (d_G[i] - d_G[j]) / quad_coef;
 		GradValue_t sum = d_alpha[i] + d_alpha[j];
 		d_alpha[i] -= delta;
 		d_alpha[j] += delta;
 
-		if(sum > C_i)
+		if (sum > C_i)
 		{
-			if(d_alpha[i] > C_i)
+			if (d_alpha[i] > C_i)
 			{
 				d_alpha[i] = C_i;
 				d_alpha[j] = sum - C_i;
@@ -471,15 +492,15 @@ __global__ void cuda_compute_alpha()
 		}
 		else
 		{
-			if(d_alpha[j] < 0)
+			if (d_alpha[j] < 0)
 			{
 				d_alpha[j] = 0;
 				d_alpha[i] = sum;
 			}
 		}
-		if(sum > C_j)
+		if (sum > C_j)
 		{
-			if(d_alpha[j] > C_j)
+			if (d_alpha[j] > C_j)
 			{
 				d_alpha[j] = C_j;
 				d_alpha[i] = sum - C_j;
@@ -487,7 +508,7 @@ __global__ void cuda_compute_alpha()
 		}
 		else
 		{
-			if(d_alpha[i] < 0)
+			if (d_alpha[i] < 0)
 			{
 				d_alpha[i] = 0;
 				d_alpha[j] = sum;
@@ -500,11 +521,11 @@ __global__ void cuda_compute_alpha()
 
 __device__ void device_update_alpha_status(int i)
 {
-	if(d_alpha[i] >= device_get_C(i))
+	if (d_alpha[i] >= device_get_C(i))
 		d_alpha_status[i] = UPPER_BOUND;
-	else if(d_alpha[i] <= 0)
+	else if (d_alpha[i] <= 0)
 		d_alpha_status[i] = LOWER_BOUND;
-	else 
+	else
 		d_alpha_status[i] = FREE;
 }
 
@@ -586,9 +607,9 @@ __global__ void cuda_compute_nu_obj_diff(GradValue_t Gmaxp, GradValue_t Gmaxn, C
 		if (!(d_alpha_status[j] == LOWER_BOUND)/*is_lower_bound(j)*/)
 		{
 			double grad_diff = Gmaxp + d_G[j];
-			if (grad_diff > 1e-4) // original: grad_diff > 0
+			if (grad_diff > 1e-6) // original: grad_diff > 0
 			{
-				CValue_t quad_coef = d_QD[ip] + d_QD[j] - 2.0 * cuda_evalQ(ip, j); 
+				CValue_t quad_coef = d_QD[ip] + d_QD[j] - 2.0 * cuda_evalQ(ip, j);
 				CValue_t obj_diff = CVALUE_MAX;
 
 				if (quad_coef > 0) {
@@ -610,9 +631,9 @@ __global__ void cuda_compute_nu_obj_diff(GradValue_t Gmaxp, GradValue_t Gmaxn, C
 		if (!(d_alpha_status[j] == UPPER_BOUND) /*is_upper_bound(j)*/)
 		{
 			double grad_diff = Gmaxn - d_G[j];
-			if (grad_diff > 1e-4) // original: grad_diff > 0
+			if (grad_diff > 1e-6) // original: grad_diff > 0
 			{
-				CValue_t quad_coef = d_QD[in] + d_QD[j] - 2.0 * cuda_evalQ(in, j); 
+				CValue_t quad_coef = d_QD[in] + d_QD[j] - 2.0 * cuda_evalQ(in, j);
 				CValue_t obj_diff = CVALUE_MAX;
 
 				if (quad_coef > 0) {
@@ -641,7 +662,7 @@ __global__ void cuda_find_nu_min_idx(CValue_t *obj_diff_array, int *obj_diff_ind
 		if (d_y[j] == +1)
 			d_solver.x = d_nu_solver.x; /* Gmaxp_idx */
 		else
-			d_solver.x = d_nu_solver.y; /* Gmaxn_idx */	
+			d_solver.x = d_nu_solver.y; /* Gmaxn_idx */
 	}
 }
 

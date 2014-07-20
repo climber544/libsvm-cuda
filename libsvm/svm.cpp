@@ -546,18 +546,23 @@ void Solver::Solve(int l, const QMatrix& Q, const double *p_, const schar *y_,
 			G[i] = p[i];
 			G_bar[i] = 0;
 		}
-		for (i = 0; i < l; i++)
-			if (!is_lower_bound(i))
-			{
-			const Qfloat *Q_i = Q.get_Q(i, l);
-			double alpha_i = alpha[i];
-			int j;
-			for (j = 0; j < l; j++)
-				G[j] += alpha_i*Q_i[j];
-			if (is_upper_bound(i))
+		if (cudaSolver) {
+			cudaSolver->setup_solver(y, QD, G, alpha, alpha_status, Cp, Cn, l); // CUDA INTEGRATION
+		}
+		else {
+			for (i = 0; i < l; i++)
+				if (!is_lower_bound(i)) 
+				{
+				const Qfloat *Q_i = Q.get_Q(i, l);
+				double alpha_i = alpha[i];
+				int j;
 				for (j = 0; j < l; j++)
-					G_bar[j] += get_C(i) * Q_i[j];
-			}
+					G[j] += alpha_i*Q_i[j];
+				if (is_upper_bound(i))
+					for (j = 0; j < l; j++)
+						G_bar[j] += get_C(i) * Q_i[j];
+				}
+		}
 	}
 
 	// optimization step
@@ -565,9 +570,6 @@ void Solver::Solve(int l, const QMatrix& Q, const double *p_, const schar *y_,
 	int iter = 0;
 	int max_iter = max(10000000, l > INT_MAX / 100 ? INT_MAX : 100 * l);
 	int counter = min(l, 1000) + 1;
-
-	if (cudaSolver)
-		cudaSolver->setup_solver(y, QD, G, alpha, alpha_status, Cp, Cn, l); // CUDA INTEGRATION
 
 	while (iter < max_iter)
 	{

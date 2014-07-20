@@ -14,14 +14,15 @@ private:
 	CUDA device memory arrays
 	*/
 	CudaArray_t<GradValue_t> dh_gmaxp; 
-	CudaArray_t<GradValue_t> dh_gmaxp2;
 	CudaArray_t<GradValue_t> dh_gmaxn; 
+	CudaArray_t<GradValue_t> dh_gmaxp2;
 	CudaArray_t<GradValue_t> dh_gmaxn2;
 	CudaArray_t<int> dh_gmaxp_idx; 
 	CudaArray_t<int> dh_gmaxn_idx;
+
 	CudaArray_t<GradValue_t> dh_result_gmaxp; 
+	CudaArray_t<GradValue_t> dh_result_gmaxn;
 	CudaArray_t<GradValue_t> dh_result_gmaxp2;
-	CudaArray_t<GradValue_t> dh_result_gmaxn; 
 	CudaArray_t<GradValue_t> dh_result_gmaxn2;
 	CudaArray_t<int> dh_result_gmaxp_idx; 
 	CudaArray_t<int> dh_result_gmaxn_idx;

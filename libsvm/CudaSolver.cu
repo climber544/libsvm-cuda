@@ -138,6 +138,8 @@ void CudaSolver::init_memory_arrays(int l) {
 
 void CudaSolver::setup_solver(const SChar_t *y, const double *QD, double *G, double *alpha, char *alpha_status, double Cp, double Cn, int l)
 {
+	clock_t now = clock(); // DEBUG
+
 	// sets up all the cuda device arrays
 	init_memory_arrays(l);
 
@@ -159,11 +161,11 @@ void CudaSolver::setup_solver(const SChar_t *y, const double *QD, double *G, dou
 
 		err = cudaMemcpy(&dh_QD[0], &h_QD[0], sizeof(CValue_t) * l, cudaMemcpyHostToDevice);
 		check_cuda_return("fail to copy to device for dh_QD", err);
+		check_cuda_return("fail to copy dh_QD", cudaDeviceSynchronize());
 	}
 
 	/** allocate space for gradient vector */
 	dh_G = make_unique_cuda_array<GradValue_t>(l);
-
 	{
 		std::unique_ptr<GradValue_t[]> h_G(new GradValue_t[l]);
 		for (int i = 0; i < l; ++i)
@@ -171,10 +173,10 @@ void CudaSolver::setup_solver(const SChar_t *y, const double *QD, double *G, dou
 
 		err = cudaMemcpy(&dh_G[0], &h_G[0], sizeof(GradValue_t) * l, cudaMemcpyHostToDevice);
 		check_cuda_return("fail to copy to device for dh_G", err);
+		check_cuda_return("fail to copy dh_G", cudaDeviceSynchronize());
 	}
 
 	dh_alpha = make_unique_cuda_array<GradValue_t>(l);
-
 	{
 		std::unique_ptr<GradValue_t[]> h_alpha(new GradValue_t[l]);
 		for (int i = 0; i < l; ++i)
@@ -182,19 +184,72 @@ void CudaSolver::setup_solver(const SChar_t *y, const double *QD, double *G, dou
 
 		err = cudaMemcpy(&dh_alpha[0], &h_alpha[0], sizeof(GradValue_t) * l, cudaMemcpyHostToDevice);
 		check_cuda_return("fail to copy to device for dh_alpha", err);
+		check_cuda_return("fail to copy dh_alpha", cudaDeviceSynchronize());
 	}
 
 	dh_alpha_status = make_unique_cuda_array<char>(l);
-
 	cudaMemcpy(&dh_alpha_status[0], alpha_status, sizeof(char) * l, cudaMemcpyHostToDevice);
 	check_cuda_return("fail to copy to device for dh_alpha_status", err);
+	check_cuda_return("fail to copy dh_alpha_status", cudaDeviceSynchronize());
 
 	/** setup constants */
 	err = update_solver_variables(&dh_y[0], &dh_QD[0], &dh_G[0], &dh_alpha[0], &dh_alpha_status[0], Cp, Cn);
-
 	check_cuda_return("fail to setup constants/textures", err);
 
+	//check_cuda_return("fail in initializing device", cudaPeekAtLastError());
+	check_cuda_return("fail in initializing device", cudaDeviceSynchronize());
+
+	/* Initialise gradient vector on device */
+	int step = 100;
+	int start = 0;
+	do {
+		cuda_init_gradient << <num_blocks, block_size >> >(start, step, l);
+		cudaDeviceSynchronize();
+		//check_cuda_return("fail in cuda_init_gradient", cudaGetLastError());
+		start += step;
+	} while (start < l);
+#ifdef DEBUG_CHECK
+	show_memory_usage(mem_size);
+#endif
+	dbgprintf(true, "CudaSolver::setup_solver: elapsed time = %f\n", (float)(clock() - now) / CLOCKS_PER_SEC); // DEBUG
+	startup_time = clock() - startup_time;
+	dbgprintf(true, "CudaSolver: Total startup time = %f s\n", (float)(startup_time) / CLOCKS_PER_SEC);
+
 	return;
+}
+
+void CudaSolver::setup_rbf_variables(double *x_square, int l)
+{
+	if (kernel_type != RBF)
+		return;
+
+	clock_t now = clock(); // DEBUG
+
+	/* x_square is only needed in computing the RBF kernel */
+	std::unique_ptr<CValue_t[]> h_x_square(new CValue_t[l]);
+	for (int i = 0; i < l; ++i)
+		h_x_square[i] = static_cast<CValue_t>(x_square[i]);
+
+	dh_x_square = make_unique_cuda_array<CValue_t>(l);
+
+	cudaError_t err = cudaMemcpy(&dh_x_square[0], &h_x_square[0], sizeof(CValue_t) * l, cudaMemcpyHostToDevice);
+	check_cuda_return("fail to copy to device for dh_x_square", err);
+
+	err = update_rbf_variables(&dh_x_square[0]);
+	check_cuda_return("fail to update rbf variables", err);
+
+	dbgprintf(true, "CudaSolver::setup_rbf_variables: elapsed time = %f\n", (float)(clock() - now) / CLOCKS_PER_SEC); // DEBUG
+}
+
+void CudaSolver::show_memory_usage(const int &total_space)
+{
+	printf("Total space allocated on device:	%d\n", total_space);
+	int devNum;
+	cudaGetDevice(&devNum);
+	cudaDeviceProp devProp;
+	cudaGetDeviceProperties(&devProp, devNum);
+	printf("Total global memory:                %lu\n", devProp.totalGlobalMem);
+	printf("Percentage allocated:               %f%%\n", (double)total_space / devProp.totalGlobalMem * 100);
 }
 
 /**
@@ -276,40 +331,13 @@ void CudaSolver::load_problem_parameters(const svm_problem &prob, const svm_para
 	check_cuda_return("fail to setup parameter constants", err);
 }
 
-void CudaSolver::setup_rbf_variables(double *x_square, int l)
-{
-	if (kernel_type != RBF)
-		return;
-
-	/* x_square is only needed in computing the RBF kernel */
-	std::unique_ptr<CValue_t[]> h_x_square(new CValue_t[l]);
-	for (int i = 0; i < l; ++i)
-		h_x_square[i] = static_cast<CValue_t>(x_square[i]);
-
-	dh_x_square = make_unique_cuda_array<CValue_t>(l);
-
-	cudaError_t err = cudaMemcpy(&dh_x_square[0], &h_x_square[0], sizeof(CValue_t) * l, cudaMemcpyHostToDevice);
-	check_cuda_return("fail to copy to device for dh_x_square", err);
-
-	err = update_rbf_variables(&dh_x_square[0]);
-	check_cuda_return("fail to update rbf variables", err);
-}
-
-void CudaSolver::show_memory_usage(const int &total_space)
-{
-	printf("Total space allocated on device:	%d\n", total_space);
-	int devNum;
-	cudaGetDevice(&devNum);
-	cudaDeviceProp devProp;
-	cudaGetDeviceProperties(&devProp, devNum);
-	printf("Total global memory:                %lu\n", devProp.totalGlobalMem);
-	printf("Percentage allocated:               %f%%\n", (double)total_space / devProp.totalGlobalMem * 100);
-}
-
 CudaSolver::CudaSolver(const svm_problem &prob, const svm_parameter &param)
 	: eps(param.eps), kernel_type(param.kernel_type), svm_type(param.svm_type), mem_size(0)
 {
+	startup_time = clock();
+	dbgprintf(true, "CudaSolver: GO!\n"); // DEBUG
 	load_problem_parameters(prob, param);
+	dbgprintf(true, "CudaSolver::CudaSolver: elapsed time = %f \n", (float)(clock() - startup_time)/CLOCKS_PER_SEC); // DEBUG
 }
 
 CudaSolver::~CudaSolver()

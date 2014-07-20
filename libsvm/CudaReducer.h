@@ -248,7 +248,10 @@ __device__ void device_block_reducer(T &f, int N)
 
 	__syncthreads();
 
-	for (int halfPoint = (blockDim.x >> 1); halfPoint > 32; halfPoint >>= 1)
+	int halfPoint = (blockDim.x >> 1);
+	if (blockDim.x & 1) ++halfPoint;
+
+	while (halfPoint > 0)
 	{
 		if (threadIdx.x < halfPoint) {
 			int thread2 = threadIdx.x + halfPoint;
@@ -260,23 +263,10 @@ __device__ void device_block_reducer(T &f, int N)
 			}
 		}
 
-		__syncthreads();
-	}
+		if (halfPoint > warpSize) __syncthreads();
 
-	if (threadIdx.x < 32) {
-		p_idx = (blockDim.x * 2 ) * blockIdx.x + (threadIdx.x + 32);
-
-		if (p_idx < N) f.reduce(threadIdx.x, threadIdx.x+32);
-		p_idx -= 16;
-		if (p_idx < N) f.reduce(threadIdx.x, threadIdx.x+16);
-		p_idx -= 8;
-		if (p_idx < N) f.reduce(threadIdx.x, threadIdx.x+8);
-		p_idx -= 4;
-		if (p_idx < N) f.reduce(threadIdx.x, threadIdx.x+4);
-		p_idx -= 2;
-		if (p_idx < N) f.reduce(threadIdx.x, threadIdx.x+2);
-		p_idx -= 1;
-		if (p_idx < N) f.reduce(threadIdx.x, threadIdx.x+1);
+		if (halfPoint > 1 && (halfPoint & 1)) ++halfPoint;
+		halfPoint >>= 1;
 	}
 
 	if (threadIdx.x == 0) {
