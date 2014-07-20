@@ -364,7 +364,7 @@ __global__ void cuda_init_gradient(int start, int step, int N)
 			acc += d_alpha[i] * cuda_evalQ(i, j);
 		}
 	}
-	
+
 	d_G[j] += acc;
 }
 
