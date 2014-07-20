@@ -248,6 +248,7 @@ __device__ void device_block_reducer(T &f, int N)
 
 	__syncthreads();
 
+	int upperPoint = blockDim.x;
 	int halfPoint = (blockDim.x >> 1);
 	if (blockDim.x & 1) ++halfPoint;
 
@@ -258,13 +259,14 @@ __device__ void device_block_reducer(T &f, int N)
 
 			p_idx = (blockDim.x * 2) * blockIdx.x + thread2;
 
-			if (p_idx < N) {// check if pair-wise index is within valid range 
+			if (p_idx < N && thread2 < upperPoint) {// check if pair-wise index is within valid range 
 				f.reduce(threadIdx.x, thread2);
 			}
 		}
 
 		if (halfPoint > warpSize) __syncthreads();
 
+		upperPoint = halfPoint;
 		if (halfPoint > 1 && (halfPoint & 1)) ++halfPoint;
 		halfPoint >>= 1;
 	}
