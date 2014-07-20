@@ -1,8 +1,8 @@
 #include "CudaSolverNU.h"
 #include "svm_device.h"
 
-/*********** NuGmaxFunctor ****************/
-class CudaSolverNU::NuGmaxFunctor // class object used for cross_block_reducer() template function
+/*********** NuGmaxReducer ****************/
+class CudaSolverNU::NuGmaxReducer // class object used for cross_block_reducer() template function
 {
 private:
 	GradValue_t *input_array1, *output_array1; // Gmaxp
@@ -15,7 +15,7 @@ private:
 	GradValue_t Gmaxp2, Gmaxn2;
 
 public:
-	NuGmaxFunctor(GradValue_t *dh_gmaxp, GradValue_t *dh_gmaxn, GradValue_t *dh_gmaxp2, GradValue_t *dh_gmaxn2, 
+	NuGmaxReducer(GradValue_t *dh_gmaxp, GradValue_t *dh_gmaxn, GradValue_t *dh_gmaxp2, GradValue_t *dh_gmaxn2, 
 		int *dh_gmaxp_idx, int *dh_gmaxn_idx,
 		GradValue_t *result_gmaxp, GradValue_t *result_gmaxn, GradValue_t *result_gmaxp2, GradValue_t *result_gmaxn2,
 		int *result_gmaxp_idx, int *result_gmaxn_idx)
@@ -81,15 +81,15 @@ public:
 	}
 };
 
-/********* NuMinIdxFunctor **************/
-class CudaSolverNU::NuMinIdxFunctor
+/********* NuMinIdxReducer **************/
+class CudaSolverNU::NuMinIdxReducer
 {
 private:
 	CValue_t *input_array, *output_array;
 	int *input_idx, *output_idx;
 
 public:
-	NuMinIdxFunctor(CValue_t *obj_diff_array, int *obj_diff_idx, CValue_t *result_obj_min, int *result_idx)
+	NuMinIdxReducer(CValue_t *obj_diff_array, int *obj_diff_idx, CValue_t *result_obj_min, int *result_idx)
 		: input_array(obj_diff_array), output_array(result_obj_min), input_idx(obj_diff_idx), output_idx(result_idx)
 	{}
 
@@ -136,7 +136,7 @@ void CudaSolverNU::select_working_set_j(GradValue_t Gmaxp, GradValue_t Gmaxn, in
 {
 	cuda_compute_nu_obj_diff << <num_blocks, block_size >> >(Gmaxp, Gmaxn, &dh_obj_diff_array[0], &dh_obj_diff_idx[0], l);
 
-	NuMinIdxFunctor func(&dh_obj_diff_array[0], &dh_obj_diff_idx[0], &dh_result_obj_diff[0], &dh_result_idx[0]);
+	NuMinIdxReducer func(&dh_obj_diff_array[0], &dh_obj_diff_idx[0], &dh_result_obj_diff[0], &dh_result_idx[0]);
 
 	cross_block_reducer(block_size, func, l);
 
@@ -154,7 +154,7 @@ int CudaSolverNU::select_working_set(int &out_i, int &out_j, int l)
 	cuda_prep_nu_gmax << <num_blocks, block_size >> >(&dh_gmaxp[0], &dh_gmaxn[0], &dh_gmaxp2[0], &dh_gmaxn2[0],
 		&dh_gmaxp_idx[0], &dh_gmaxn_idx[0], l);
 
-	NuGmaxFunctor func(&dh_gmaxp[0], &dh_gmaxn[0], &dh_gmaxp2[0], &dh_gmaxn2[0],
+	NuGmaxReducer func(&dh_gmaxp[0], &dh_gmaxn[0], &dh_gmaxp2[0], &dh_gmaxn2[0],
 		&dh_gmaxp_idx[0], &dh_gmaxn_idx[0],
 		&dh_result_gmaxp[0], &dh_result_gmaxn[0], &dh_result_gmaxp2[0], &dh_result_gmaxn2[0], 
 		&dh_result_gmaxp_idx[0], &dh_result_gmaxn_idx[0]);

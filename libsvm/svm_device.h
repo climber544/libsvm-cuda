@@ -84,5 +84,6 @@ cudaError_t update_solver_variables(SChar_t *dh_y, CValue_t *dh_QD, GradValue_t 
 cudaError_t update_rbf_variables(CValue_t *dh_x_square);
 cudaError_t update_param_constants(const svm_parameter &param, int *dh_x, cuda_svm_node *dh_space, size_t dh_space_size);
 void unbind_texture();
+void init_device_gradient(int block_size, int startj, int stepj, int N);
 
 #endif

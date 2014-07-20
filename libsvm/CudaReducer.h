@@ -8,7 +8,7 @@ Cuda device functions for block reduction
 
 extern __shared__ char ss[];
 
-class D_MinIdxFunctor
+class D_MinIdxReducer
 {
 private:
 	CValue_t *obj_diff_array;
@@ -21,7 +21,7 @@ private:
 	volatile int *s_indx;
 
 public:
-	__device__ D_MinIdxFunctor(CValue_t *obj_diff_array, int *obj_diff_indx, CValue_t *result_obj_min, int *result_indx)
+	__device__ D_MinIdxReducer(CValue_t *obj_diff_array, int *obj_diff_indx, CValue_t *result_obj_min, int *result_indx)
 		: obj_diff_array(obj_diff_array), obj_diff_indx(obj_diff_indx), result_obj_min(result_obj_min), result_indx(result_indx)
 	{
 		s_obj_diff = (CValue_t *)&ss[0];
@@ -65,7 +65,7 @@ public:
 	}
 };
 
-class D_GmaxFunctor
+class D_GmaxReducer
 {
 private:
 	GradValue_t *dh_gmax, *result_gmax; /* Gmax */
@@ -78,7 +78,7 @@ private:
 	volatile int *s_gmax_idx;
 
 public:
-	__device__ D_GmaxFunctor(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int *dh_gmax_idx, GradValue_t *result_gmax, GradValue_t *result_gmax2, int *result_gmax_idx)	
+	__device__ D_GmaxReducer(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int *dh_gmax_idx, GradValue_t *result_gmax, GradValue_t *result_gmax2, int *result_gmax_idx)	
 		: dh_gmax(dh_gmax), dh_gmax2(dh_gmax2), dh_gmax_idx(dh_gmax_idx), result_gmax(result_gmax), result_gmax2(result_gmax2), result_gmax_idx(result_gmax_idx)
 	{
 		s_gmax = (GradValue_t *)&ss[0];
@@ -131,7 +131,7 @@ public:
 	}
 };
 
-class D_NuGmaxFunctor
+class D_NuGmaxReducer
 {
 private:
 	GradValue_t *dh_gmaxp, *result_gmaxp; /* Gmaxp */
@@ -150,7 +150,7 @@ private:
 	volatile int *s_gmaxn_idx;
 
 public:
-	__device__ D_NuGmaxFunctor(GradValue_t *dh_gmaxp, GradValue_t *dh_gmaxn, GradValue_t *dh_gmaxp2, GradValue_t *dh_gmaxn2, 
+	__device__ D_NuGmaxReducer(GradValue_t *dh_gmaxp, GradValue_t *dh_gmaxn, GradValue_t *dh_gmaxp2, GradValue_t *dh_gmaxn2, 
 		int *dh_gmaxp_idx, int *dh_gmaxn_idx,
 		GradValue_t *result_gmaxp, GradValue_t *result_gmaxn, GradValue_t *result_gmaxp2, GradValue_t *result_gmaxn2,
 		int *result_gmaxp_idx, int *result_gmaxn_idx)
@@ -232,6 +232,50 @@ public:
 	__device__ void return_idx(int &gmaxp_idx, int &gmaxn_idx) {
 		gmaxp_idx = s_gmaxp_idx[0];
 		gmaxn_idx = s_gmaxn_idx[0];
+	}
+};
+
+__device__ GradValue_t device_computer_gradient(int i, int j);
+
+class D_GradientAdder
+{
+private:
+	int j;
+	int N;
+
+	/** shared memory arrays */
+	volatile GradValue_t *s_acc;
+
+public:
+	__device__ D_GradientAdder(int j, int N)
+		: j(j), N(N)
+	{
+		s_acc = (GradValue_t *)&ss[0];
+	}
+
+	__device__ void block_out_of_range(const int &bid)
+	{
+		s_acc[0] = 0;
+	}
+
+	__device__ void load_shared_memory(const int &tid, const int &g_idx, const int &p_idx, const int &N)
+	{
+		s_acc[tid] = device_computer_gradient(g_idx, j);
+
+		if (p_idx < N) {
+			s_acc[tid] += device_computer_gradient(p_idx, j);
+		}
+	}
+
+	__device__ void reduce(const int &tid1, const int &tid2) {
+		s_acc[tid1] += s_acc[tid2];
+	}
+
+	__device__ void store_result(const int &bid) {
+	}
+
+	__device__ GradValue_t return_sum() {
+		return s_acc[0];
 	}
 };
 

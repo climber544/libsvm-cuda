@@ -4,15 +4,15 @@
 
 CudaSolver *cudaSolver;
 
-/****** MinIdxFunctor *********/
-class CudaSolver::MinIdxFunctor
+/****** MinIdxReducer *********/
+class CudaSolver::MinIdxReducer
 {
 private:
 	CValue_t *input_array, *output_array;
 	int *input_idx, *output_idx;
 
 public:
-	MinIdxFunctor(CValue_t *obj_diff_array, int *obj_diff_idx, CValue_t *result_obj_min, int *result_idx)
+	MinIdxReducer(CValue_t *obj_diff_array, int *obj_diff_idx, CValue_t *result_obj_min, int *result_idx)
 		: input_array(obj_diff_array), output_array(result_obj_min), input_idx(obj_diff_idx), output_idx(result_idx)
 	{}
 
@@ -36,8 +36,8 @@ public:
 	}
 };
 
-/******* GmaxFunctor *********/
-class CudaSolver::GmaxFunctor
+/******* GmaxReducer *********/
+class CudaSolver::GmaxReducer
 {
 private:
 	GradValue_t *input_array1, *output_array1; // Gmax
@@ -46,7 +46,7 @@ private:
 	GradValue_t Gmax, Gmax2;
 
 public:
-	GmaxFunctor(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int *dh_gmax_idx, GradValue_t *result_gmax, GradValue_t *result_gmax2, int *result_gmax_idx)
+	GmaxReducer(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int *dh_gmax_idx, GradValue_t *result_gmax, GradValue_t *result_gmax2, int *result_gmax_idx)
 		: input_array1(dh_gmax), input_array2(dh_gmax2), input_idx(dh_gmax_idx), output_array1(result_gmax), output_array2(result_gmax2), output_idx(result_gmax_idx)
 	{}
 
@@ -111,9 +111,17 @@ void CudaSolver::init_gmax_space(int l)
 }
 
 void CudaSolver::init_memory_arrays(int l) {
-	int bsize = CUDA_BLOCK_SIZE; // TODO: query device for max thread block size
-	while (l / bsize < 10 && bsize > 32) {
-		bsize >>= 1; // halve it
+	int bsize = THREADS_PER_BLOCK; 
+	while (true) {
+		if (bsize > 2*WARP_SIZE) { 
+			int nblocks = l / bsize;
+			if (nblocks < 50) // number of blocks still too small
+				bsize >>= 1; // halve it
+			else
+				break; // number of blocks at least 50
+		}
+		else
+			break; // threads per block too small
 	}
 
 	block_size = bsize;
@@ -200,12 +208,12 @@ void CudaSolver::setup_solver(const SChar_t *y, const double *QD, double *G, dou
 	check_cuda_return("fail in initializing device", cudaDeviceSynchronize());
 
 	/* Initialise gradient vector on device */
-	int step = 100;
+	int step = 500; // Initialize 500 entries at a time 
+					// NOTE: this can take awhile, so some devices will time out.  adjust this value accordingly
 	int start = 0;
 	do {
-		cuda_init_gradient << <num_blocks, block_size >> >(start, step, l);
+		init_device_gradient(block_size, start, step, l);
 		cudaDeviceSynchronize();
-		//check_cuda_return("fail in cuda_init_gradient", cudaGetLastError());
 		start += step;
 	} while (start < l);
 #ifdef DEBUG_CHECK
@@ -361,7 +369,7 @@ void CudaSolver::select_working_set_j(GradValue_t Gmax, int l)
 {
 	cuda_compute_obj_diff << <num_blocks, block_size >> >(Gmax, &dh_obj_diff_array[0], &dh_obj_diff_idx[0], l);
 
-	MinIdxFunctor func(&dh_obj_diff_array[0], &dh_obj_diff_idx[0], &dh_result_obj_diff[0], &dh_result_idx[0]);
+	MinIdxReducer func(&dh_obj_diff_array[0], &dh_obj_diff_idx[0], &dh_result_obj_diff[0], &dh_result_idx[0]);
 	cross_block_reducer(block_size, func, l);
 	return ;
 }
@@ -375,7 +383,7 @@ int CudaSolver::select_working_set(int &out_i, int &out_j, int l)
 
 	cuda_prep_gmax << <num_blocks, block_size >> >(&dh_gmax[0], &dh_gmax2[0], &dh_gmax_idx[0], l);
 
-	GmaxFunctor func(&dh_gmax[0], &dh_gmax2[0], &dh_gmax_idx[0], &dh_result_gmax[0], &dh_result_gmax2[0], &dh_result_gmax_idx[0]);
+	GmaxReducer func(&dh_gmax[0], &dh_gmax2[0], &dh_gmax_idx[0], &dh_result_gmax[0], &dh_result_gmax2[0], &dh_result_gmax_idx[0]);
 	cross_block_reducer(block_size, func, l);
 	func.get_gmax_values(Gmax, Gmax2);
 

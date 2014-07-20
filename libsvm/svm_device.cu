@@ -270,7 +270,7 @@ __device__ CValue_t cuda_evalQ(int i, int j)
 
 __global__ void cuda_find_min_idx(CValue_t *obj_diff_array, int *obj_diff_indx, CValue_t *result_obj_min, int *result_indx, int N)
 {
-	D_MinIdxFunctor func(obj_diff_array, obj_diff_indx, result_obj_min, result_indx); // Class defined in CudaReducer.h
+	D_MinIdxReducer func(obj_diff_array, obj_diff_indx, result_obj_min, result_indx); // Class defined in CudaReducer.h
 	device_block_reducer(func, N); // Template function defined in CudaReducer.h
 	if (blockIdx.x == 0)
 		d_solver.y = func.return_idx();
@@ -368,9 +368,77 @@ __global__ void cuda_init_gradient(int start, int step, int N)
 	d_G[j] += acc;
 }
 
+/**
+double version of atomicAdd
+*/
+__device__ double atomicAdd(double * address, double val)
+{
+	unsigned long long int *address_as_ull =
+		(unsigned long long int*)address;
+	unsigned long long int old = *address_as_ull, assumed;
+	do {
+		assumed = old;
+		old = atomicCAS(address_as_ull, assumed,
+			__double_as_longlong(val + __longlong_as_double(assumed)));
+	} while (assumed != old);
+	return __longlong_as_double(old);
+}
+
+__device__ GradValue_t device_computer_gradient(int i, int j)
+{
+	if (!(d_alpha_status[i] == LOWER_BOUND) /*is_lower_bound(i)*/)
+	{
+		return d_alpha[i] * cuda_evalQ(i, j);
+	}
+	else
+		return 0;
+}
+
+__global__ void cuda_init_gradient_block(int startj, int N)
+{
+	int i = blockIdx.x * blockDim.x * 2 + threadIdx.x;
+	int j = blockIdx.y * blockDim.y + threadIdx.y + startj;
+
+	if (j >= N || i >= N)
+		return;
+
+	D_GradientAdder func(j, N);
+	device_block_reducer(func, N);
+
+	if (threadIdx.x == 0) { // every block in the x-axis (ie. i)
+		GradValue_t s = func.return_sum();
+		atomicAdd(&d_G[j], s);
+	}
+
+	return;
+}
+
+/**
+	Initializes the gradient vector on the device
+	@param block_size	number of threads per block
+	@param startj		starting index j for G_j
+	@param stepj		number of steps from startj to update
+	@param N			size of gradient vector
+*/
+void init_device_gradient(int block_size, int startj, int stepj, int N)
+{
+	int reduce_block_size = 2 * block_size;
+	dim3 grid;
+	grid.x = N / reduce_block_size;
+	if (N%reduce_block_size != 0) ++grid.x; // the number of blocks in the ith dimension
+	grid.y = stepj; // the number of blocks in the jth dimension == G_j that will be updated
+
+	dim3 block;
+	block.x = block_size; // number of threads in the ith dimension
+	block.y = 1; // number of threads per block in the jth dimension (one thread per block)
+	
+	size_t shared_mem = block.x * sizeof(GradValue_t);
+	cuda_init_gradient_block << <grid, block, shared_mem >> > (startj, N);
+}
+
 __global__ void cuda_find_gmax(find_gmax_param param, int N)
 {
-	D_GmaxFunctor func(param.dh_gmax, param.dh_gmax2, param.dh_gmax_idx, param.result_gmax, param.result_gmax2, param.result_gmax_idx); // class defined in CudaReducer.h
+	D_GmaxReducer func(param.dh_gmax, param.dh_gmax2, param.dh_gmax_idx, param.result_gmax, param.result_gmax2, param.result_gmax_idx); // class defined in CudaReducer.h
 
 	device_block_reducer(func, N); // Template function defined in CudaReducer.h
 
@@ -578,7 +646,7 @@ __global__ void cuda_prep_nu_gmax(GradValue_t *dh_gmaxp, GradValue_t *dh_gmaxn, 
 
 __global__ void cuda_find_nu_gmax(find_nu_gmax_param param, int N)
 {
-	D_NuGmaxFunctor func(param.dh_gmaxp, param.dh_gmaxn, param.dh_gmaxp2, param.dh_gmaxn2, param.dh_gmaxp_idx, param.dh_gmaxn_idx,
+	D_NuGmaxReducer func(param.dh_gmaxp, param.dh_gmaxn, param.dh_gmaxp2, param.dh_gmaxn2, param.dh_gmaxp_idx, param.dh_gmaxn_idx,
 		param.result_gmaxp, param.result_gmaxn, param.result_gmaxp2, param.result_gmaxn2, param.result_gmaxp_idx, param.result_gmaxn_idx);
 
 	device_block_reducer(func, N);
@@ -654,7 +722,7 @@ __global__ void cuda_compute_nu_obj_diff(GradValue_t Gmaxp, GradValue_t Gmaxn, C
 
 __global__ void cuda_find_nu_min_idx(CValue_t *obj_diff_array, int *obj_diff_indx, CValue_t *result_obj_min, int *result_indx, int N)
 {
-	D_MinIdxFunctor func(obj_diff_array, obj_diff_indx, result_obj_min, result_indx); // Class defined in CudaReducer.h
+	D_MinIdxReducer func(obj_diff_array, obj_diff_indx, result_obj_min, result_indx); // Class defined in CudaReducer.h
 	device_block_reducer(func, N); // Template function defined in CudaReducer.h
 	if (blockIdx.x == 0) {
 		int j = func.return_idx();

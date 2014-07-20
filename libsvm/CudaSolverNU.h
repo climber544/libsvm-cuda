@@ -29,9 +29,9 @@ private:
 
 	void init_gmax_space(int l);
 
-	class NuMinIdxFunctor; // class object used for cross_block_reducer() template function
+	class NuMinIdxReducer; // class object used for cross_block_reducer() template function
 
-	class NuGmaxFunctor; // class object used for cross_block_reducer template function
+	class NuGmaxReducer; // class object used for cross_block_reducer template function
 
 	void select_working_set_j(GradValue_t Gmaxp, GradValue_t Gmaxn, int l); 
 

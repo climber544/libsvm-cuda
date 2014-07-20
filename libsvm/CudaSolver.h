@@ -32,6 +32,7 @@ Cuda implementation of SMO solver
 #endif
 #endif
 
+
 //#define USE_CONSTANT_SVM_NODE
 //#define DEBUG_VERIFY // for verifying ... more critical than debugging
 //#define DEBUG_CHECK // for debugging
@@ -59,7 +60,8 @@ typedef signed char SChar_t;
 typedef float CValue_t;
 #define CVALUE_MAX  FLT_MAX
 
-#define CUDA_BLOCK_SIZE	256
+#define THREADS_PER_BLOCK	256
+#define WARP_SIZE			32
 
 typedef double GradValue_t;
 #define GRADVALUE_MAX	DBL_MAX
@@ -120,9 +122,9 @@ protected:
 		return f.process_output();
 	}
 
-	class MinIdxFunctor; // class object used for cross_block_reducer() template function
+	class MinIdxReducer; // class object used for cross_block_reducer() template function
 
-	class GmaxFunctor; // class object used for cross_block_reducer() template function
+	class GmaxReducer; // class object used for cross_block_reducer() template function
 
 	/**
 	Smart pointers for CUDA arrays.  Their semantics are similar to C++11 std::unique_ptr.
