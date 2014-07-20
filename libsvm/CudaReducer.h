@@ -87,7 +87,11 @@ public:
 	}
 
 	__device__ void block_out_of_range(const int &bid)
-	{}
+	{
+		s_gmax[0] = -GRADVALUE_MAX;
+		s_gmax2[0] = -GRADVALUE_MAX;
+		s_gmax_idx[0] = -1;
+	}
 
 	__device__ void load_shared_memory(const int &tid, const int &g_idx, const int &p_idx, const int &N)
 	{
@@ -167,7 +171,10 @@ public:
 	}
 
 	__device__ void block_out_of_range(const int &bid)
-	{}
+	{
+		s_gmaxp[0] = s_gmaxn[0] = s_gmaxp2[0] = s_gmaxn2[0] = -GRADVALUE_MAX;
+		s_gmaxp_idx[0] = s_gmaxn_idx[0] = -1;
+	}
 
 	__device__ void load_shared_memory(const int &tid, const int &g_idx, const int &p_idx, const int &N)
 	{
