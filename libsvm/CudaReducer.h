@@ -13,7 +13,7 @@
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
 
-** Cuda device objects and functions for misc parallel block reduction routines
+** Description: Cuda device objects and functions for misc parallel block reduction routines
 ** @author: Ed Walker
 */
 #ifndef _CUDA_TEMPLATES_H_

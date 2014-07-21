@@ -146,59 +146,63 @@ void CudaSolver::init_memory_arrays(int l) {
 	init_gmax_space(l);
 }
 
-void CudaSolver::setup_solver(const SChar_t *y, const double *QD, double *G, double *alpha, char *alpha_status, double Cp, double Cn, int l)
+void CudaSolver::setup_solver(const SChar_t *y, const double *QD, double *G, double *alpha, char *alpha_status, double Cp, double Cn, int active_size)
 {
+	/*
+	** Note: svm_problem.l may not be equal to this active_size.  
+	** In regression analysis, active_size == 2 * svm_problem.l in SMO Solver. 
+	*/
 	clock_t now = clock(); // DEBUG
 
 	// sets up all the cuda device arrays
-	init_memory_arrays(l);
+	init_memory_arrays(active_size);
 
 	cudaError_t err;
 
 	// allocate space for labels
-	dh_y = make_unique_cuda_array<SChar_t>(l);
+	dh_y = make_unique_cuda_array<SChar_t>(active_size);
 
-	err = cudaMemcpy(&dh_y[0], y, sizeof(SChar_t) * l, cudaMemcpyHostToDevice);
+	err = cudaMemcpy(&dh_y[0], y, sizeof(SChar_t) * active_size, cudaMemcpyHostToDevice);
 	check_cuda_return("fail to copy to device for dh_y", err);
 
-	dh_QD = make_unique_cuda_array<CValue_t>(l);
+	dh_QD = make_unique_cuda_array<CValue_t>(active_size);
 	{
-		std::unique_ptr<CValue_t[]> h_QD(new CValue_t[l]);
-		for (int i = 0; i < l; ++i) {
+		std::unique_ptr<CValue_t[]> h_QD(new CValue_t[active_size]);
+		for (int i = 0; i < active_size; ++i) {
 			CHECK_FLT_RANGE(QD[i]);
 			h_QD[i] = static_cast<CValue_t>(QD[i]);
 		}
 
-		err = cudaMemcpy(&dh_QD[0], &h_QD[0], sizeof(CValue_t) * l, cudaMemcpyHostToDevice);
+		err = cudaMemcpy(&dh_QD[0], &h_QD[0], sizeof(CValue_t) * active_size, cudaMemcpyHostToDevice);
 		check_cuda_return("fail to copy to device for dh_QD", err);
 		check_cuda_return("fail to copy dh_QD", cudaDeviceSynchronize());
 	}
 
 	/** allocate space for gradient vector */
-	dh_G = make_unique_cuda_array<GradValue_t>(l);
+	dh_G = make_unique_cuda_array<GradValue_t>(active_size);
 	{
-		std::unique_ptr<GradValue_t[]> h_G(new GradValue_t[l]);
-		for (int i = 0; i < l; ++i)
+		std::unique_ptr<GradValue_t[]> h_G(new GradValue_t[active_size]);
+		for (int i = 0; i < active_size; ++i)
 			h_G[i] = static_cast<GradValue_t>(G[i]);
 
-		err = cudaMemcpy(&dh_G[0], &h_G[0], sizeof(GradValue_t) * l, cudaMemcpyHostToDevice);
+		err = cudaMemcpy(&dh_G[0], &h_G[0], sizeof(GradValue_t) * active_size, cudaMemcpyHostToDevice);
 		check_cuda_return("fail to copy to device for dh_G", err);
 		check_cuda_return("fail to copy dh_G", cudaDeviceSynchronize());
 	}
 
-	dh_alpha = make_unique_cuda_array<GradValue_t>(l);
+	dh_alpha = make_unique_cuda_array<GradValue_t>(active_size);
 	{
-		std::unique_ptr<GradValue_t[]> h_alpha(new GradValue_t[l]);
-		for (int i = 0; i < l; ++i)
+		std::unique_ptr<GradValue_t[]> h_alpha(new GradValue_t[active_size]);
+		for (int i = 0; i < active_size; ++i)
 			h_alpha[i] = static_cast<GradValue_t>(alpha[i]);
 
-		err = cudaMemcpy(&dh_alpha[0], &h_alpha[0], sizeof(GradValue_t) * l, cudaMemcpyHostToDevice);
+		err = cudaMemcpy(&dh_alpha[0], &h_alpha[0], sizeof(GradValue_t) * active_size, cudaMemcpyHostToDevice);
 		check_cuda_return("fail to copy to device for dh_alpha", err);
 		check_cuda_return("fail to copy dh_alpha", cudaDeviceSynchronize());
 	}
 
-	dh_alpha_status = make_unique_cuda_array<char>(l);
-	cudaMemcpy(&dh_alpha_status[0], alpha_status, sizeof(char) * l, cudaMemcpyHostToDevice);
+	dh_alpha_status = make_unique_cuda_array<char>(active_size);
+	cudaMemcpy(&dh_alpha_status[0], alpha_status, sizeof(char) * active_size, cudaMemcpyHostToDevice);
 	check_cuda_return("fail to copy to device for dh_alpha_status", err);
 	check_cuda_return("fail to copy dh_alpha_status", cudaDeviceSynchronize());
 
@@ -214,10 +218,10 @@ void CudaSolver::setup_solver(const SChar_t *y, const double *QD, double *G, dou
 					// NOTE: this can take awhile, so some devices will time out.  adjust this value accordingly
 	int start = 0;
 	do {
-		init_device_gradient(block_size, start, step, l);
+		init_device_gradient(block_size, start, step, active_size);
 		cudaDeviceSynchronize();
 		start += step;
-	} while (start < l);
+	} while (start < active_size);
 #ifdef DEBUG_CHECK
 	show_memory_usage(mem_size);
 #endif
@@ -337,7 +341,7 @@ void CudaSolver::load_problem_parameters(const svm_problem &prob, const svm_para
 		check_cuda_return("fail to copy to device for dh_x", err);
 	}
 
-	err = update_param_constants(param, &dh_x[0], &dh_space[0], sizeof(cuda_svm_node)*elements);
+	err = update_param_constants(param, &dh_x[0], &dh_space[0], sizeof(cuda_svm_node)*elements, prob.l);
 	check_cuda_return("fail to setup parameter constants", err);
 }
 

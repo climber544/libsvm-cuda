@@ -18,9 +18,10 @@ texture<float2, 1, cudaReadModeElementType> d_tex_space;
 __constant__	int				*d_x;
 __device__		int				d_kernel_type;	// enum { LINEAR, POLY, RBF, SIGMOID, PRECOMPUTED }; /* kernel_type */
 __device__		int				d_svm_type;		// enum { C_SVC, NU_SVC, ONE_CLASS, EPSILON_SVR, NU_SVR };	/* svm_type */
-__constant__	double			d_gamma;
-__constant__	double			d_coef0;
-__constant__	int				d_degree;
+__constant__	double			d_gamma;		// rbf, poly, and sigmoid kernel
+__constant__	double			d_coef0;		// poly and sigmoid kernel
+__constant__	int				d_degree;		// poly kernel
+__constant__	int				d_l;			// original # SV
 
 __constant__	CValue_t		*d_x_square;
 __constant__	CValue_t		*d_QD;
@@ -38,9 +39,14 @@ __device__		GradValue_t		d_delta_alpha_j;
 __device__		int2			d_solver; // member x and y hold the selected i and j working set indices respectively
 __device__		int2			d_nu_solver; // member x and y hold the Gmaxp_idx and Gmaxn_idx indices respectively.  
 
-cudaError_t update_param_constants(const svm_parameter &param, int *dh_x, cuda_svm_node *dh_space, size_t dh_space_size)
+cudaError_t update_param_constants(const svm_parameter &param, int *dh_x, cuda_svm_node *dh_space, size_t dh_space_size, int l)
 {
 	cudaError_t err;
+	err = cudaMemcpyToSymbol(d_l, &l, sizeof(l));
+	if (err != cudaSuccess) {
+		fprintf(stderr, "Error with copying to symbol d_l\n");
+		return err;
+	}
 	err = cudaMemcpyToSymbol(d_kernel_type, &param.kernel_type, sizeof(param.kernel_type));
 	if (err != cudaSuccess) {
 		fprintf(stderr, "Error with copying to symbol d_kernel_type\n");
@@ -198,20 +204,18 @@ __device__ CValue_t dot(int i, int j)
 
 __device__ CValue_t device_kernel_rbf(int i, int j)
 {
-	double q = d_x_square[i] + d_x_square[j] - 2 * dot(i, j);
-	dbgprintf(false, "cuda_eval_kernel: x_square[%d]=%.10g x_square[%d]=%.10g q=%.10g\n",
-		i, d_x_square[i], j, d_x_square[j], q);
-	return exp(-d_gamma * q);
+	CValue_t q = d_x_square[i] + d_x_square[j] - 2 * dot(i, j);
+	return exp(-(CValue_t)d_gamma * q);
 }
 
 __device__ CValue_t device_kernel_poly(int i, int j)
 {
-	return pow(d_gamma * dot(i, j) + d_coef0, d_degree);
+	return pow((CValue_t)d_gamma * dot(i, j) + (CValue_t)d_coef0, d_degree);
 }
 
 __device__ CValue_t device_kernel_sigmoid(int i, int j)
 {
-	return tanh(d_gamma * dot(i, j) + d_coef0);
+	return tanh((CValue_t)d_gamma * dot(i, j) + (CValue_t)d_coef0);
 }
 
 __device__ CValue_t device_kernel_linear(int i, int j)
@@ -290,7 +294,7 @@ __global__ void cuda_compute_obj_diff(GradValue_t Gmax, CValue_t *dh_obj_diff_ar
 	{
 		if (!(d_alpha_status[j] == LOWER_BOUND)/*is_lower_bound(j)*/)
 		{
-			double grad_diff = Gmax + d_G[j];
+			GradValue_t grad_diff = Gmax + d_G[j];
 			if (grad_diff > 1e-6) // original: grad_diff > 0
 			{
 				CValue_t quad_coef = d_QD[i] + d_QD[j] - 2.0 * d_y[i] * cuda_evalQ(i, j);
@@ -314,7 +318,7 @@ __global__ void cuda_compute_obj_diff(GradValue_t Gmax, CValue_t *dh_obj_diff_ar
 	{
 		if (!(d_alpha_status[j] == UPPER_BOUND) /*is_upper_bound(j)*/)
 		{
-			double grad_diff = Gmax - d_G[j];
+			GradValue_t grad_diff = Gmax - d_G[j];
 			if (grad_diff > 1e-6) // original: grad_diff > 0
 			{
 				CValue_t quad_coef = d_QD[i] + d_QD[j] + 2.0 * d_y[i] * cuda_evalQ(i, j);
@@ -491,8 +495,8 @@ __global__ void cuda_compute_alpha()
 	int i = d_solver.x; // d_selected_i;
 	int j = d_solver.y; // d_selected_j;
 
-	double C_i = device_get_C(i);
-	double C_j = device_get_C(j);
+	GradValue_t C_i = device_get_C(i);
+	GradValue_t C_j = device_get_C(j);
 
 	GradValue_t old_alpha_i = d_alpha[i];
 	GradValue_t old_alpha_j = d_alpha[j];
@@ -674,7 +678,7 @@ __global__ void cuda_compute_nu_obj_diff(GradValue_t Gmaxp, GradValue_t Gmaxn, C
 	{
 		if (!(d_alpha_status[j] == LOWER_BOUND)/*is_lower_bound(j)*/)
 		{
-			double grad_diff = Gmaxp + d_G[j];
+			GradValue_t grad_diff = Gmaxp + d_G[j];
 			if (grad_diff > 1e-6) // original: grad_diff > 0
 			{
 				CValue_t quad_coef = d_QD[ip] + d_QD[j] - 2.0 * cuda_evalQ(ip, j);
@@ -698,7 +702,7 @@ __global__ void cuda_compute_nu_obj_diff(GradValue_t Gmaxp, GradValue_t Gmaxn, C
 	{
 		if (!(d_alpha_status[j] == UPPER_BOUND) /*is_upper_bound(j)*/)
 		{
-			double grad_diff = Gmaxn - d_G[j];
+			GradValue_t grad_diff = Gmaxn - d_G[j];
 			if (grad_diff > 1e-6) // original: grad_diff > 0
 			{
 				CValue_t quad_coef = d_QD[in] + d_QD[j] - 2.0 * cuda_evalQ(in, j);

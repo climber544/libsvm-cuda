@@ -13,7 +13,7 @@
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
 ** 
-** Function prototypes for svm_device.cu
+** Description: Function prototypes for svm_device.cu
 ** @author: Ed Walker
 */
 #ifndef _CUDA_DEVICE_FUNCTION_H_
@@ -96,7 +96,7 @@ __global__ void cuda_find_nu_gmax(find_nu_gmax_param param, int N);
 /********** Host functions ***********/
 cudaError_t update_solver_variables(SChar_t *dh_y, CValue_t *dh_QD, GradValue_t *dh_G, GradValue_t *dh_alpha, char *dh_alpha_status, double Cp, double Cn);
 cudaError_t update_rbf_variables(CValue_t *dh_x_square);
-cudaError_t update_param_constants(const svm_parameter &param, int *dh_x, cuda_svm_node *dh_space, size_t dh_space_size);
+cudaError_t update_param_constants(const svm_parameter &param, int *dh_x, cuda_svm_node *dh_space, size_t dh_space_size, int l);
 void unbind_texture();
 void init_device_gradient(int block_size, int startj, int stepj, int N);
 

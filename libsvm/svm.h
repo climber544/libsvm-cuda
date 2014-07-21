@@ -12,6 +12,9 @@
 ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
+**
+** Description: LIBSVM-CUDA API interface.  This is compatable with the original LIBSVM API interface.
+** @author: Ed Walker
 */
 
 #ifndef _LIBSVM_H
@@ -43,7 +46,7 @@ enum { LINEAR, POLY, RBF, SIGMOID, PRECOMPUTED }; /* kernel_type */
 
 struct svm_parameter
 {
-	int cuda_flag; // CUDA INTEGRATION
+	int cuda_flag; // CUDA INTEGRATION - set true to enable running on cuda device
 	int svm_type;
 	int kernel_type;
 	int degree;	/* for poly */

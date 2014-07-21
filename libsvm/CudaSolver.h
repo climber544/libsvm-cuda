@@ -13,7 +13,7 @@
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
 **
-** Cuda implementation of Sequential Minimal Optimization (SMO) solver
+** Description: Cuda implementation of Sequential Minimal Optimization (SMO) solver
 ** @author: Ed Walker
 */
 #ifndef _CUDA_SOLVER_H_
@@ -71,16 +71,20 @@
 
 typedef signed char SChar_t;
 
-typedef float CValue_t;
+typedef float CValue_t; // used for computing kernel values
 #define CVALUE_MAX  FLT_MAX
 
 #define THREADS_PER_BLOCK	256
 #define WARP_SIZE			32
 
+//#define USE_DOUBLE_GRADIENT
+#ifdef USE_DOUBLE_GRADIENT // used for storing gradient values
 typedef double GradValue_t;
 #define GRADVALUE_MAX	DBL_MAX
-//typedef float GradValue_t;
-//#define GRADVALUE_MAX FLT_MAX
+#else
+typedef float GradValue_t;
+#define GRADVALUE_MAX FLT_MAX
+#endif
 
 /**
 cuda_svm_node.x == svm_node.index

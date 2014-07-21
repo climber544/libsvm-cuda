@@ -13,7 +13,7 @@
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
 ** 
-** Cuda implementation of NU Sequential Minimal Optimization (SMO) solver
+** Description: Cuda implementation of NU Sequential Minimal Optimization (SMO) solver
 ** @author: Ed Walker
 */
 #ifndef _CUDA_NU_SOLVER_H_
