@@ -231,45 +231,63 @@ __device__ CValue_t device_kernel_precomputed(int i, int j)
 	return get_col_value(i_col + offset).y;
 	// return x[i][(int)(x[j][0].value)].value;
 }
+/**
+	Implements schar *SVR_Q::sign
+	[0..l-1] --> 1
+	[l..2*l) --> -1
+*/
+__device__ __forceinline__ SChar_t device_SVR_sign(int i)
+{
+	return (i < d_l ? 1 : -1);
+}
+
+/**
+	Implements int *SVR_Q::index
+	[0..l-1] --> [0..l-1]
+	[l..2*l) --> [0..1-1]
+*/
+__device__ __forceinline__ int device_SVR_real_index(int i)
+{
+	return (i < d_l ? i : (i - d_l));
+}
 
 __device__ CValue_t cuda_evalQ(int i, int j)
 {
-	CValue_t q = 0;
-	switch (d_kernel_type)
-	{
-	case RBF:
-		q = device_kernel_rbf(i, j);
-		break;
-	case POLY:
-		q = device_kernel_poly(i, j);
-		break;
-	case LINEAR:
-		q = device_kernel_linear(i, j);
-		break;
-	case SIGMOID:
-		q = device_kernel_sigmoid(i, j);
-		break;
-	case PRECOMPUTED:
-		q = device_kernel_precomputed(i, j);
-		break;
-	}
+	CValue_t rc = 1;
 
 	switch (d_svm_type)
 	{
 	case C_SVC:
 	case NU_SVC:
 		// SVC_Q
-		return (CValue_t)(d_y[i] * d_y[j] * q);
+		rc = (CValue_t)(d_y[i] * d_y[j]);
+		break;
 	case ONE_CLASS:
 		// ONE_CLASS_Q
-		return q;
+		break;
 	case EPSILON_SVR:
 	case NU_SVR:
 		// SVR_Q
-		return 0;
-	default:
-		return q;
+		rc = (CValue_t)(device_SVR_sign(i) * device_SVR_sign(j));
+		i = device_SVR_real_index(i); // use this for the kernel calculation
+		break;
 	}
+
+	switch (d_kernel_type)
+	{
+	case RBF:
+		return rc * device_kernel_rbf(i, j);
+	case POLY:
+		return rc * device_kernel_poly(i, j);
+	case LINEAR:
+		return rc * device_kernel_linear(i, j);
+	case SIGMOID:
+		return rc * device_kernel_sigmoid(i, j);
+	case PRECOMPUTED:
+		return rc * device_kernel_precomputed(i, j);
+	}
+
+	return 0;
 }
 
 __global__ void cuda_find_min_idx(CValue_t *obj_diff_array, int *obj_diff_indx, CValue_t *result_obj_min, int *result_indx, int N)
