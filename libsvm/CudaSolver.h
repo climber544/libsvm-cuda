@@ -1,6 +1,20 @@
-/**
-Cuda implementation of SMO solver
-@author: Ed Walker
+/*
+** Copyright 2014 Edward Walker
+**
+** Licensed under the Apache License, Version 2.0 (the "License");
+** you may not use this file except in compliance with the License.
+** You may obtain a copy of the License at
+**
+** http ://www.apache.org/licenses/LICENSE-2.0
+**
+** Unless required by applicable law or agreed to in writing, software
+** distributed under the License is distributed on an "AS IS" BASIS,
+** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+** See the License for the specific language governing permissions and
+** limitations under the License.
+**
+** Cuda implementation of Sequential Minimal Optimization (SMO) solver
+** @author: Ed Walker
 */
 #ifndef _CUDA_SOLVER_H_
 #define _CUDA_SOLVER_H_
@@ -192,6 +206,8 @@ protected:
 	int mem_size; // amount of cuda memory allocated
 	int startup_time;
 
+	bool quiet_mode;
+
 	/**
 	CUDA device memory arrays
 	*/
@@ -248,7 +264,7 @@ private:
 
 public:
 
-	CudaSolver(const svm_problem &prob, const svm_parameter &param);
+	CudaSolver(const svm_problem &prob, const svm_parameter &param, bool quiet_mode=true);
 	~CudaSolver();
 
 	void setup_solver(const SChar_t *y, const double *QD, double *G, double *alpha, 

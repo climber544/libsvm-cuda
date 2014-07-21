@@ -128,12 +128,14 @@ void CudaSolver::init_memory_arrays(int l) {
 	num_blocks = l / block_size;
 	if (l % block_size != 0) ++num_blocks;
 
-	std::cout << "CUDA Integration\n";
-	std::cout << "----------------\n";
-	std::cout << "Selected thread block size:         " << bsize << std::endl;
-	std::cout << "Selected number of blocks:          " << num_blocks << std::endl;
-	std::cout << "Problem size:                       " << l << std::endl;
-	std::cout << "Gradient vector stored as:          " << typeid(GradValue_t).name() << std::endl;
+	if (!quiet_mode) {
+		std::cout << "CUDA Integration\n";
+		std::cout << "----------------\n";
+		std::cout << "Selected thread block size:         " << bsize << std::endl;
+		std::cout << "Selected number of blocks:          " << num_blocks << std::endl;
+		std::cout << "Problem size:                       " << l << std::endl;
+		std::cout << "Gradient vector stored as:          " << typeid(GradValue_t).name() << std::endl;
+	}
 
 	result_idx.reset(new int[num_blocks]);
 	result_obj_diff.reset(new CValue_t[num_blocks]);
@@ -339,8 +341,8 @@ void CudaSolver::load_problem_parameters(const svm_problem &prob, const svm_para
 	check_cuda_return("fail to setup parameter constants", err);
 }
 
-CudaSolver::CudaSolver(const svm_problem &prob, const svm_parameter &param)
-	: eps(param.eps), kernel_type(param.kernel_type), svm_type(param.svm_type), mem_size(0)
+CudaSolver::CudaSolver(const svm_problem &prob, const svm_parameter &param, bool quiet_mode)
+	: eps(param.eps), kernel_type(param.kernel_type), svm_type(param.svm_type), mem_size(0), quiet_mode(quiet_mode)
 {
 	startup_time = clock();
 	dbgprintf(true, "CudaSolver: GO!\n"); // DEBUG
