@@ -278,13 +278,19 @@ Kernel::Kernel(int l, svm_node * const * x_, const svm_parameter& param)
 	}
 
 	clone(x, x_, l);
-
+	
 	if (kernel_type == RBF)
 	{
-		x_square = new double[l];
-		for (int i = 0; i < l; i++)
-			x_square[i] = dot(x[i], x[i]);	
-		if (cudaSolver != nullptr) cudaSolver->setup_rbf_variables(l);
+		if (cudaSolver == nullptr) { // CUDA INTEGRATION
+			x_square = new double[l];
+			for (int i = 0; i < l; i++)
+				x_square[i] = dot(x[i], x[i]);
+		}
+		else 
+		{
+			x_square = 0;
+			cudaSolver->setup_rbf_variables(l); // CUDA INTEGRATION - cuda device initializes its own x_square vector
+		}
 	}
 	else
 		x_square = 0;
@@ -547,7 +553,7 @@ void Solver::Solve(int l, const QMatrix& Q, const double *p_, const schar *y_,
 			G_bar[i] = 0;
 		}
 		if (cudaSolver) {
-			cudaSolver->setup_solver(y, QD, G, alpha, alpha_status, Cp, Cn, l); // CUDA INTEGRATION
+			cudaSolver->setup_solver(y, G, alpha, alpha_status, Cp, Cn, l); // CUDA INTEGRATION
 		}
 		else {
 			for (i = 0; i < l; i++)
@@ -1312,9 +1318,13 @@ public:
 	{
 		clone(y, y_, prob.l);
 		cache = new Cache(prob.l, (long int)(param.cache_size*(1 << 20)));
-		QD = new double[prob.l];
-		for (int i = 0; i < prob.l; i++)
-			QD[i] = (this->*kernel_function)(i, i);
+		if (cudaSolver == nullptr) { // CUDA INTEGRATION - cuda device will allocate its own QD vector
+			QD = new double[prob.l];
+			for (int i = 0; i < prob.l; i++)
+				QD[i] = (this->*kernel_function)(i, i);
+		}
+		else
+			QD = nullptr;
 	}
 
 	Qfloat *get_Q(int i, int len) const
@@ -1361,9 +1371,13 @@ public:
 		:Kernel(prob.l, prob.x, param)
 	{
 		cache = new Cache(prob.l, (long int)(param.cache_size*(1 << 20)));
-		QD = new double[prob.l];
-		for (int i = 0; i < prob.l; i++)
-			QD[i] = (this->*kernel_function)(i, i);
+		if (cudaSolver == nullptr) { // CUDA INTEGRATION - cude device will allocate its own QD vector
+			QD = new double[prob.l];
+			for (int i = 0; i < prob.l; i++)
+				QD[i] = (this->*kernel_function)(i, i);
+		}
+		else
+			QD = nullptr;
 	}
 
 	Qfloat *get_Q(int i, int len) const
@@ -1408,7 +1422,10 @@ public:
 	{
 		l = prob.l;
 		cache = new Cache(l, (long int)(param.cache_size*(1 << 20)));
-		QD = new double[2 * l];
+		if (cudaSolver == nullptr) // CUDA INTEGRATION - cuda device will allocate its own QD vector
+			QD = new double[2 * l]; 
+		else
+			QD = nullptr;
 		sign = new schar[2 * l];
 		index = new int[2 * l];
 		for (int k = 0; k < l; k++)
@@ -1417,8 +1434,10 @@ public:
 			sign[k + l] = -1;
 			index[k] = k;
 			index[k + l] = k;
-			QD[k] = (this->*kernel_function)(k, k);
-			QD[k + l] = QD[k];
+			if (cudaSolver == nullptr) { // CUDA INTEGRATION
+				QD[k] = (this->*kernel_function)(k, k);
+				QD[k + l] = QD[k];
+			}
 		}
 		buffer[0] = new Qfloat[2 * l];
 		buffer[1] = new Qfloat[2 * l];

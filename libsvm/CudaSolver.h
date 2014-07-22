@@ -294,7 +294,7 @@ public:
 	CudaSolver(const svm_problem &prob, const svm_parameter &param, bool quiet_mode=true);
 	~CudaSolver();
 
-	void setup_solver(const SChar_t *y, const double *QD, double *G, double *alpha, 
+	void setup_solver(const SChar_t *y, double *G, double *alpha, 
 		char *alpha_status, double Cp, double Cn, int l) ;
 
 	void setup_rbf_variables(int l); // for RBF kernel only

@@ -26,6 +26,8 @@ __global__ void cuda_peek(int i, int j); // Useful for debugging but services no
 
 __global__ void cuda_setup_x_square(int N);
 
+__global__ void cuda_setup_QD(int N);
+
 /**
 cuda_find_min_idx:
 shared memory requirement: block_size * (sizeof(CValue_t) + sizeof(int))

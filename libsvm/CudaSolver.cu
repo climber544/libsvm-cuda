@@ -157,7 +157,7 @@ void CudaSolver::init_memory_arrays(int l)
 	init_gmax_space(l);
 }
 
-void CudaSolver::setup_solver(const SChar_t *y, const double *QD, double *G, double *alpha, char *alpha_status, double Cp, double Cn, int active_size)
+void CudaSolver::setup_solver(const SChar_t *y, double *G, double *alpha, char *alpha_status, double Cp, double Cn, int active_size)
 {
 	/*
 	** Note: svm_problem.l may not be equal to this active_size.  
@@ -177,16 +177,6 @@ void CudaSolver::setup_solver(const SChar_t *y, const double *QD, double *G, dou
 	check_cuda_return("fail to copy to device for dh_y", err);
 
 	dh_QD = make_unique_cuda_array<CValue_t>(active_size);
-	{
-		std::unique_ptr<CValue_t[]> h_QD(new CValue_t[active_size]);
-		for (int i = 0; i < active_size; ++i) {
-			CHECK_FLT_RANGE(QD[i]);
-			h_QD[i] = static_cast<CValue_t>(QD[i]);
-		}
-
-		err = cudaMemcpy(&dh_QD[0], &h_QD[0], sizeof(CValue_t) * active_size, cudaMemcpyHostToDevice);
-		check_cuda_return("fail to copy to device for dh_QD", err);
-	}
 
 	/** allocate space for gradient vector */
 	dh_G = make_unique_cuda_array<GradValue_t>(active_size);
@@ -228,7 +218,10 @@ void CudaSolver::setup_solver(const SChar_t *y, const double *QD, double *G, dou
 		start += step;
 	} while (start < active_size);
 
-
+	int nblocks, bsize;
+	find_launch_parameters(nblocks, bsize, l);
+	cuda_setup_QD<<<nblocks, bsize>>>(l);
+	check_cuda_kernel_launch("fail in cuda_setup_QD");
 
 #ifdef DEBUG_CHECK
 	show_memory_usage(mem_size);

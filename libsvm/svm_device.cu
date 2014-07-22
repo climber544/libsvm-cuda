@@ -204,28 +204,28 @@ __device__ CValue_t dot(int i, int j)
 	return sum;
 }
 
-__device__ CValue_t device_kernel_rbf(int i, int j)
+__device__ CValue_t device_kernel_rbf(const int &i, const int &j)
 {
 	CValue_t q = d_x_square[i] + d_x_square[j] - 2 * dot(i, j);
 	return exp(-(CValue_t)d_gamma * q);
 }
 
-__device__ CValue_t device_kernel_poly(int i, int j)
+__device__ CValue_t device_kernel_poly(const int &i, const int &j)
 {
 	return pow((CValue_t)d_gamma * dot(i, j) + (CValue_t)d_coef0, d_degree);
 }
 
-__device__ CValue_t device_kernel_sigmoid(int i, int j)
+__device__ CValue_t device_kernel_sigmoid(const int &i, const int &j)
 {
 	return tanh((CValue_t)d_gamma * dot(i, j) + (CValue_t)d_coef0);
 }
 
-__device__ CValue_t device_kernel_linear(int i, int j)
+__device__ CValue_t device_kernel_linear(const int &i, const int &j)
 {
 	return dot(i, j);
 }
 
-__device__ CValue_t device_kernel_precomputed(int i, int j)
+__device__ CValue_t device_kernel_precomputed(const int &i, const int &j)
 {
 	int i_col = d_x[i];
 	int j_col = d_x[j];
@@ -254,6 +254,31 @@ __device__ __forceinline__ int device_SVR_real_index(int i)
 	return (i < d_l ? i : (i - d_l));
 }
 
+/**
+	Returns the product of the kernel function multiplied with rc
+	@param i	index i
+	@param j	index j
+	@param rc	multiplier for the kernel function
+*/
+__device__ __forceinline__ CValue_t kernel(const int &i, const int &j, CValue_t rc)
+{
+	switch (d_kernel_type)
+	{
+	case RBF:
+		return rc * device_kernel_rbf(i, j);
+	case POLY:
+		return rc * device_kernel_poly(i, j);
+	case LINEAR:
+		return rc * device_kernel_linear(i, j);
+	case SIGMOID:
+		return rc * device_kernel_sigmoid(i, j);
+	case PRECOMPUTED:
+		return rc * device_kernel_precomputed(i, j);
+	}
+
+	return 0;
+}
+
 __device__ CValue_t cuda_evalQ(int i, int j)
 {
 	CValue_t rc = 1;
@@ -277,21 +302,7 @@ __device__ CValue_t cuda_evalQ(int i, int j)
 		break;
 	}
 
-	switch (d_kernel_type)
-	{
-	case RBF:
-		return rc * device_kernel_rbf(i, j);
-	case POLY:
-		return rc * device_kernel_poly(i, j);
-	case LINEAR:
-		return rc * device_kernel_linear(i, j);
-	case SIGMOID:
-		return rc * device_kernel_sigmoid(i, j);
-	case PRECOMPUTED:
-		return rc * device_kernel_precomputed(i, j);
-	}
-
-	return 0;
+	return kernel(i, j, rc);
 }
 
 __global__ void cuda_find_min_idx(CValue_t *obj_diff_array, int *obj_diff_indx, CValue_t *result_obj_min, int *result_indx, int N)
@@ -474,14 +485,24 @@ __global__ void cuda_find_gmax(find_gmax_param param, int N, bool debug)
 		d_solver.x = func.return_idx();
 }
 
-
-
 __global__ void cuda_setup_x_square(int N)
 {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 	if (i >= N)
 		return;
 	d_x_square[i] = dot(i, i);
+}
+
+__global__ void cuda_setup_QD(int N)
+{
+	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	if (i >= N)
+		return;
+
+	d_QD[i] = kernel(i, i, 1);
+
+	if (d_svm_type == NU_SVR || d_svm_type == EPSILON_SVR)
+		d_QD[i + d_l] = d_QD[i];
 }
 
 __global__ void cuda_prep_gmax(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int *dh_gmax_idx, int N)
