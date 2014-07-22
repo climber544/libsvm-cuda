@@ -283,8 +283,8 @@ Kernel::Kernel(int l, svm_node * const * x_, const svm_parameter& param)
 	{
 		x_square = new double[l];
 		for (int i = 0; i < l; i++)
-			x_square[i] = dot(x[i], x[i]);
-		if (cudaSolver != nullptr) cudaSolver->setup_rbf_variables(x_square, l);
+			x_square[i] = dot(x[i], x[i]);	
+		if (cudaSolver != nullptr) cudaSolver->setup_rbf_variables(l);
 	}
 	else
 		x_square = 0;
@@ -1438,7 +1438,7 @@ public:
 		int j, real_i = index[i];
 		if (cache->get_data(real_i, &data, l) < l)
 		{
-			for (j = 0; j < l; j++)
+			for (j = 0; j < l; j++) 
 				data[j] = (Qfloat)(this->*kernel_function)(real_i, j);
 		}
 

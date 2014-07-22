@@ -85,6 +85,7 @@ private:
 	GradValue_t *dh_gmax, *result_gmax; /* Gmax */
 	GradValue_t *dh_gmax2, *result_gmax2; /* Gmax2 */
 	int *dh_gmax_idx, *result_gmax_idx; /* Gmax_idx */
+	bool debug;
 
 	/** shared memory arrays */
 	volatile GradValue_t *s_gmax;
@@ -92,8 +93,8 @@ private:
 	volatile int *s_gmax_idx;
 
 public:
-	__device__ D_GmaxReducer(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int *dh_gmax_idx, GradValue_t *result_gmax, GradValue_t *result_gmax2, int *result_gmax_idx)	
-		: dh_gmax(dh_gmax), dh_gmax2(dh_gmax2), dh_gmax_idx(dh_gmax_idx), result_gmax(result_gmax), result_gmax2(result_gmax2), result_gmax_idx(result_gmax_idx)
+	__device__ D_GmaxReducer(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int *dh_gmax_idx, GradValue_t *result_gmax, GradValue_t *result_gmax2, int *result_gmax_idx, bool debug=false)	
+		: dh_gmax(dh_gmax), dh_gmax2(dh_gmax2), dh_gmax_idx(dh_gmax_idx), result_gmax(result_gmax), result_gmax2(result_gmax2), result_gmax_idx(result_gmax_idx), debug(debug)
 	{
 		s_gmax = (GradValue_t *)&ss[0];
 		s_gmax2 = (GradValue_t *)&ss[sizeof(GradValue_t)*blockDim.x];
@@ -111,12 +112,14 @@ public:
 		s_gmax[tid] = dh_gmax[g_idx];
 		s_gmax_idx[tid] = dh_gmax_idx[g_idx];
 		s_gmax2[tid] = dh_gmax2[g_idx];
+
 		if (p_idx < N) {
 			if (s_gmax[tid] < dh_gmax[p_idx] ||
 				(s_gmax[tid] == dh_gmax[p_idx] && s_gmax_idx[tid] < dh_gmax_idx[p_idx])) {
 					s_gmax[tid] = dh_gmax[p_idx];
 					s_gmax_idx[tid] = dh_gmax_idx[p_idx];
 			}
+
 			if (s_gmax2[tid] < dh_gmax2[p_idx])
 				s_gmax2[tid] = dh_gmax2[p_idx];
 		}
@@ -138,6 +141,7 @@ public:
 		result_gmax_idx[bid] = s_gmax_idx[0];
 		result_gmax[bid] = s_gmax[0];
 		result_gmax2[bid] = s_gmax2[0];
+		//if (debug) printf("DEBUG: D_GMaxReducer::store_result: bid=%d gmax2 %g %g gmax_idx %d\n", bid, s_gmax2[0], result_gmax2[bid], s_gmax_idx[0]); // DEBUG
 	}
 
 	__device__ int return_idx() {

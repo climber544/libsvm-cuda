@@ -50,6 +50,7 @@
 //#define USE_CONSTANT_SVM_NODE
 //#define DEBUG_VERIFY // for verifying ... more critical than debugging
 //#define DEBUG_CHECK // for debugging
+//#define DEBUG_TRACE // for tracing calls
 
 #ifdef DEBUG_VERIFY
 #define CHECK_FLT_RANGE(x)	\
@@ -61,12 +62,20 @@
 #else
 #define CHECK_FLT_RANGE(x)
 #define CHECK_FLT_INF(x)
-
 #endif
+
+#ifdef DEBUG_TRACE
+#define logtrace(...)	printf(__VA_ARGS__)
+#else
+#define logtrace(...)
+#endif
+
 #ifdef DEBUG_CHECK
 #define dbgprintf(debug, ...) if (debug) printf (__VA_ARGS__)
+#define check_cuda_kernel_launch(msg)	check_cuda_return(msg, cudaDeviceSynchronize());
 #else
 #define dbgprintf(debug, ...)
+#define check_cuda_kernel_launch(msg)
 #endif
 
 typedef signed char SChar_t;
@@ -98,7 +107,7 @@ static inline void _check_cuda_return(const char *msg, cudaError_t err, char *fi
 {
 	if (err != cudaSuccess) {
 		std::cerr << "CUDA Error (" << file << ":" << line << "): ";
-		std::cerr << msg << " " << cudaGetErrorString(err) << std::endl;
+		std::cerr << msg << ": " << cudaGetErrorString(err) << std::endl;
 		cudaDeviceReset();
 		throw std::runtime_error(msg);
 	}
@@ -110,8 +119,8 @@ class CudaSolver
 protected:
 
 	/**
-	Cross cuda block reducer -- device function only performs a reduction per block
-	This function orchestrates the device functions to reduce across blocks 
+	Cross cuda block reducer -- Because the device function performs a block reduction only,
+	this function can be used to orchestrate the device functions to reduce across blocks.
 	*/
 	template <class T>
 	int cross_block_reducer(int def_block_size, T &f, int N)
@@ -206,7 +215,7 @@ protected:
 	double eps;
 	int kernel_type;
 	int svm_type;
-
+	int l; // #SVs
 	int mem_size; // amount of cuda memory allocated
 	int startup_time;
 
@@ -260,11 +269,25 @@ private:
 	*/
 	void init_memory_arrays(int l);
 
+	/**
+	Shows amount of memory allocated on cuda device
+	*/
 	void show_memory_usage(const int &total_space);
 
+	/**
+	Loads the SVM problem parameters onto cuda device
+	*/
 	void load_problem_parameters(const svm_problem &prob, const svm_parameter &param);
 
+	/**
+	Used by select_working_set() to find the j index
+	*/
 	void select_working_set_j(GradValue_t Gmax, int l);
+
+	/**
+	Utility function for finding the launch parameters for N instances
+	*/
+	void find_launch_parameters(int &num_blocks, int &block_size, int N);
 
 public:
 
@@ -274,7 +297,7 @@ public:
 	void setup_solver(const SChar_t *y, const double *QD, double *G, double *alpha, 
 		char *alpha_status, double Cp, double Cn, int l) ;
 
-	void setup_rbf_variables(double *x_square, int l); // for RBF kernel only
+	void setup_rbf_variables(int l); // for RBF kernel only
 
 	// return 1 if already optimal, return 0 otherwise
 	virtual int select_working_set(int &out_i, int &out_j, int l);

@@ -20,6 +20,7 @@ public:
 	{
 		size_t share_mem_size = reduce_block_size*(sizeof(CValue_t) + sizeof(int));
 		cuda_find_min_idx << <reduce_blocks, reduce_block_size, share_mem_size >> >(input_array, input_idx, output_array, output_idx, N);
+		check_cuda_kernel_launch("fail in cuda_find_min_idx");
 	}
 
 	void swap()
@@ -44,10 +45,11 @@ private:
 	GradValue_t *input_array2, *output_array2; // Gmax2
 	int *input_idx, *output_idx; // Gmax_idx
 	GradValue_t Gmax, Gmax2;
+	bool debug;
 
 public:
-	GmaxReducer(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int *dh_gmax_idx, GradValue_t *result_gmax, GradValue_t *result_gmax2, int *result_gmax_idx)
-		: input_array1(dh_gmax), input_array2(dh_gmax2), input_idx(dh_gmax_idx), output_array1(result_gmax), output_array2(result_gmax2), output_idx(result_gmax_idx)
+	GmaxReducer(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int *dh_gmax_idx, GradValue_t *result_gmax, GradValue_t *result_gmax2, int *result_gmax_idx, bool debug=false)
+		: input_array1(dh_gmax), input_array2(dh_gmax2), input_idx(dh_gmax_idx), output_array1(result_gmax), output_array2(result_gmax2), output_idx(result_gmax_idx), debug(debug)
 	{}
 
 	void compute(size_t reduce_blocks, size_t reduce_block_size, int N)
@@ -60,7 +62,10 @@ public:
 		param.result_gmax = output_array1;
 		param.result_gmax2 = output_array2;
 		param.result_gmax_idx = output_idx;
-		cuda_find_gmax << <reduce_blocks, reduce_block_size, share_mem_size >> >(param, N);
+		logtrace("TRACE: GmaxReducer::compute: share_mem_size=%d, reduce_blocks=%d, reduce_block_size=%d, N=%d\n",
+			share_mem_size, reduce_blocks, reduce_block_size, N);
+		cuda_find_gmax << <reduce_blocks, reduce_block_size, share_mem_size >> >(param, N, debug);
+		check_cuda_kernel_launch("fail in cuda_find_gmax");
 	}
 
 	void swap()
@@ -110,11 +115,12 @@ void CudaSolver::init_gmax_space(int l)
 	return;
 }
 
-void CudaSolver::init_memory_arrays(int l) {
-	int bsize = THREADS_PER_BLOCK; 
+void CudaSolver::find_launch_parameters(int &num_blocks, int &block_size, int N)
+{
+	int bsize = THREADS_PER_BLOCK;
 	while (true) {
-		if (bsize > 2*WARP_SIZE) { 
-			int nblocks = l / bsize;
+		if (bsize > 2 * WARP_SIZE) {
+			int nblocks = N / bsize;
 			if (nblocks < 50) // number of blocks still too small
 				bsize >>= 1; // halve it
 			else
@@ -125,13 +131,18 @@ void CudaSolver::init_memory_arrays(int l) {
 	}
 
 	block_size = bsize;
-	num_blocks = l / block_size;
-	if (l % block_size != 0) ++num_blocks;
+	num_blocks = N / block_size;
+	if (N % block_size != 0) ++num_blocks;
+}
+
+void CudaSolver::init_memory_arrays(int l) 
+{
+	find_launch_parameters(num_blocks, block_size, l);
 
 	if (!quiet_mode) {
 		std::cout << "CUDA Integration\n";
 		std::cout << "----------------\n";
-		std::cout << "Selected thread block size:         " << bsize << std::endl;
+		std::cout << "Selected thread block size:         " << block_size << std::endl;
 		std::cout << "Selected number of blocks:          " << num_blocks << std::endl;
 		std::cout << "Problem size:                       " << l << std::endl;
 		std::cout << "Gradient vector stored as:          " << typeid(GradValue_t).name() << std::endl;
@@ -175,7 +186,6 @@ void CudaSolver::setup_solver(const SChar_t *y, const double *QD, double *G, dou
 
 		err = cudaMemcpy(&dh_QD[0], &h_QD[0], sizeof(CValue_t) * active_size, cudaMemcpyHostToDevice);
 		check_cuda_return("fail to copy to device for dh_QD", err);
-		check_cuda_return("fail to copy dh_QD", cudaDeviceSynchronize());
 	}
 
 	/** allocate space for gradient vector */
@@ -187,7 +197,6 @@ void CudaSolver::setup_solver(const SChar_t *y, const double *QD, double *G, dou
 
 		err = cudaMemcpy(&dh_G[0], &h_G[0], sizeof(GradValue_t) * active_size, cudaMemcpyHostToDevice);
 		check_cuda_return("fail to copy to device for dh_G", err);
-		check_cuda_return("fail to copy dh_G", cudaDeviceSynchronize());
 	}
 
 	dh_alpha = make_unique_cuda_array<GradValue_t>(active_size);
@@ -198,59 +207,55 @@ void CudaSolver::setup_solver(const SChar_t *y, const double *QD, double *G, dou
 
 		err = cudaMemcpy(&dh_alpha[0], &h_alpha[0], sizeof(GradValue_t) * active_size, cudaMemcpyHostToDevice);
 		check_cuda_return("fail to copy to device for dh_alpha", err);
-		check_cuda_return("fail to copy dh_alpha", cudaDeviceSynchronize());
 	}
 
 	dh_alpha_status = make_unique_cuda_array<char>(active_size);
 	cudaMemcpy(&dh_alpha_status[0], alpha_status, sizeof(char) * active_size, cudaMemcpyHostToDevice);
 	check_cuda_return("fail to copy to device for dh_alpha_status", err);
-	check_cuda_return("fail to copy dh_alpha_status", cudaDeviceSynchronize());
 
 	/** setup constants */
 	err = update_solver_variables(&dh_y[0], &dh_QD[0], &dh_G[0], &dh_alpha[0], &dh_alpha_status[0], Cp, Cn);
 	check_cuda_return("fail to setup constants/textures", err);
 
-	//check_cuda_return("fail in initializing device", cudaPeekAtLastError());
 	check_cuda_return("fail in initializing device", cudaDeviceSynchronize());
 
 	/* Initialise gradient vector on device */
-	int step = 500; // Initialize 500 entries at a time 
-					// NOTE: this can take awhile, so some devices will time out.  adjust this value accordingly
-	int start = 0;
+	int step = 500; // Initialize step d_G entries at a time 
+					// NOTE: This can take awhile, so some devices will time out.  Adjust this value accordingly.
+	int start = 0;	// Starting index of d_G to update.
 	do {
 		init_device_gradient(block_size, start, step, active_size);
-		cudaDeviceSynchronize();
 		start += step;
 	} while (start < active_size);
+
+
+
 #ifdef DEBUG_CHECK
 	show_memory_usage(mem_size);
 #endif
-	dbgprintf(true, "CudaSolver::setup_solver: elapsed time = %f\n", (float)(clock() - now) / CLOCKS_PER_SEC); // DEBUG
+	dbgprintf(true, "CudaSolver::setup_solver: elapsed time = %f\n", (float)(clock() - now) / CLOCKS_PER_SEC); 
 	startup_time = clock() - startup_time;
 	dbgprintf(true, "CudaSolver: Total startup time = %f s\n", (float)(startup_time) / CLOCKS_PER_SEC);
 
 	return;
 }
 
-void CudaSolver::setup_rbf_variables(double *x_square, int l)
+void CudaSolver::setup_rbf_variables( int l)
 {
 	if (kernel_type != RBF)
 		return;
 
 	clock_t now = clock(); // DEBUG
-
-	/* x_square is only needed in computing the RBF kernel */
-	std::unique_ptr<CValue_t[]> h_x_square(new CValue_t[l]);
-	for (int i = 0; i < l; ++i)
-		h_x_square[i] = static_cast<CValue_t>(x_square[i]);
-
+	cudaError_t err;
 	dh_x_square = make_unique_cuda_array<CValue_t>(l);
-
-	cudaError_t err = cudaMemcpy(&dh_x_square[0], &h_x_square[0], sizeof(CValue_t) * l, cudaMemcpyHostToDevice);
-	check_cuda_return("fail to copy to device for dh_x_square", err);
 
 	err = update_rbf_variables(&dh_x_square[0]);
 	check_cuda_return("fail to update rbf variables", err);
+		
+	int nblocks, bsize;
+	find_launch_parameters(nblocks, bsize, l);
+	cuda_setup_x_square << <nblocks, bsize >> >(l); // DEBUG
+	check_cuda_kernel_launch("fail in cuda_setup_x_square");
 
 	dbgprintf(true, "CudaSolver::setup_rbf_variables: elapsed time = %f\n", (float)(clock() - now) / CLOCKS_PER_SEC); // DEBUG
 }
@@ -346,7 +351,7 @@ void CudaSolver::load_problem_parameters(const svm_problem &prob, const svm_para
 }
 
 CudaSolver::CudaSolver(const svm_problem &prob, const svm_parameter &param, bool quiet_mode)
-	: eps(param.eps), kernel_type(param.kernel_type), svm_type(param.svm_type), mem_size(0), quiet_mode(quiet_mode)
+	: l(prob.l), eps(param.eps), kernel_type(param.kernel_type), svm_type(param.svm_type), mem_size(0), quiet_mode(quiet_mode)
 {
 	startup_time = clock();
 	dbgprintf(true, "CudaSolver: GO!\n"); // DEBUG
@@ -363,40 +368,56 @@ CudaSolver::~CudaSolver()
 /****** Compute methods **********/
 void CudaSolver::compute_alpha()
 {
+	logtrace("TRACE: compute_alpha\n");
 	cuda_compute_alpha << <1, 1 >> >();
+	check_cuda_kernel_launch("fail in cuda_compute_alpha");
 }
 
 void CudaSolver::update_alpha_status()
 {
+	logtrace("TRACE: update_alpha_status\n");
 	cuda_update_alpha_status << <1, 1 >> >();
+	check_cuda_kernel_launch("fail in cuda_update_alpha_status");
 }
 
 void CudaSolver::select_working_set_j(GradValue_t Gmax, int l)
 {
+	logtrace("TRACE: select_working_set_j: num_blocks=%d block_size=%d\n", num_blocks, block_size);
+
 	cuda_compute_obj_diff << <num_blocks, block_size >> >(Gmax, &dh_obj_diff_array[0], &dh_obj_diff_idx[0], l);
+	check_cuda_kernel_launch("fail in cuda_compute_obj_diff");
+
+	logtrace("TRACE: select_working_set_j: starting cross_block_reducer\n");
 
 	MinIdxReducer func(&dh_obj_diff_array[0], &dh_obj_diff_idx[0], &dh_result_obj_diff[0], &dh_result_idx[0]);
 	cross_block_reducer(block_size, func, l);
+
+	logtrace("TRACE: select_working_set_j: done!\n");
 	return ;
 }
 
 
 int CudaSolver::select_working_set(int &out_i, int &out_j, int l)
 {
+	logtrace("TRACE: select_working_set: l = %d\n", l);
 	GradValue_t Gmax = -GRADVALUE_MAX; // -INF;
 	GradValue_t Gmax2 = -GRADVALUE_MAX; // -INF;
 
-
 	cuda_prep_gmax << <num_blocks, block_size >> >(&dh_gmax[0], &dh_gmax2[0], &dh_gmax_idx[0], l);
+	check_cuda_kernel_launch("fail in cuda_prep_gmax");
 
-	GmaxReducer func(&dh_gmax[0], &dh_gmax2[0], &dh_gmax_idx[0], &dh_result_gmax[0], &dh_result_gmax2[0], &dh_result_gmax_idx[0]);
+	logtrace("TRACE: select_working_set: done preparing for finding gmax\n");
+
+	GmaxReducer func(&dh_gmax[0], &dh_gmax2[0], &dh_gmax_idx[0], &dh_result_gmax[0], 
+		&dh_result_gmax2[0], &dh_result_gmax_idx[0]);
+
 	cross_block_reducer(block_size, func, l);
+
 	func.get_gmax_values(Gmax, Gmax2);
 
-	dbgprintf(true, "Device: Gmax_idx %d Gmax %g Gmax2 %g\n", Gmax_idx, Gmax, Gmax2);
-
-	if (Gmax + Gmax2 < eps)
+	if (Gmax + Gmax2 < eps) {
 		return 1;
+	}
 
 	select_working_set_j(Gmax, l);
 
@@ -405,7 +426,9 @@ int CudaSolver::select_working_set(int &out_i, int &out_j, int l)
 
 void CudaSolver::update_gradient(int l)
 {
+	logtrace("TRACE: update_gradient: l = %d\n", l);
 	cuda_update_gradient << <num_blocks, block_size >> >(l);
+	check_cuda_kernel_launch("fail in cuda_update_gradient");
 }
 
 void CudaSolver::fetch_vectors(double *G, double *alpha, char *alpha_status, int l)

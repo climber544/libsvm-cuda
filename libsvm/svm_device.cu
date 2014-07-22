@@ -8,6 +8,8 @@ using namespace std;
 #include "svm_device.h"
 #include "CudaReducer.h"
 
+#define DEVICE_EPS	0
+
 enum { LOWER_BOUND = 0, UPPER_BOUND = 1, FREE = 2 };
 
 #ifdef USE_CONSTANT_SVM_NODE
@@ -231,6 +233,7 @@ __device__ CValue_t device_kernel_precomputed(int i, int j)
 	return get_col_value(i_col + offset).y;
 	// return x[i][(int)(x[j][0].value)].value;
 }
+
 /**
 	Implements schar *SVR_Q::sign
 	[0..l-1] --> 1
@@ -263,13 +266,14 @@ __device__ CValue_t cuda_evalQ(int i, int j)
 		rc = (CValue_t)(d_y[i] * d_y[j]);
 		break;
 	case ONE_CLASS:
-		// ONE_CLASS_Q
+		// ONE_CLASS_Q - nothing to do
 		break;
 	case EPSILON_SVR:
 	case NU_SVR:
 		// SVR_Q
 		rc = (CValue_t)(device_SVR_sign(i) * device_SVR_sign(j));
-		i = device_SVR_real_index(i); // use this for the kernel calculation
+		i = device_SVR_real_index(i); // use the kernel calculation
+		j = device_SVR_real_index(j); // use for kernel calculation
 		break;
 	}
 
@@ -313,7 +317,7 @@ __global__ void cuda_compute_obj_diff(GradValue_t Gmax, CValue_t *dh_obj_diff_ar
 		if (!(d_alpha_status[j] == LOWER_BOUND)/*is_lower_bound(j)*/)
 		{
 			GradValue_t grad_diff = Gmax + d_G[j];
-			if (grad_diff > 1e-6) // original: grad_diff > 0
+			if (grad_diff > DEVICE_EPS) // original: grad_diff > 0
 			{
 				CValue_t quad_coef = d_QD[i] + d_QD[j] - 2.0 * d_y[i] * cuda_evalQ(i, j);
 				CValue_t obj_diff = CVALUE_MAX;
@@ -337,7 +341,7 @@ __global__ void cuda_compute_obj_diff(GradValue_t Gmax, CValue_t *dh_obj_diff_ar
 		if (!(d_alpha_status[j] == UPPER_BOUND) /*is_upper_bound(j)*/)
 		{
 			GradValue_t grad_diff = Gmax - d_G[j];
-			if (grad_diff > 1e-6) // original: grad_diff > 0
+			if (grad_diff > DEVICE_EPS) // original: grad_diff > 0
 			{
 				CValue_t quad_coef = d_QD[i] + d_QD[j] + 2.0 * d_y[i] * cuda_evalQ(i, j);
 				CValue_t obj_diff = CVALUE_MAX;
@@ -456,11 +460,13 @@ void init_device_gradient(int block_size, int startj, int stepj, int N)
 	
 	size_t shared_mem = block.x * sizeof(GradValue_t);
 	cuda_init_gradient_block << <grid, block, shared_mem >> > (startj, N);
+	check_cuda_kernel_launch("fail in cuda_init_gradient_block");
 }
 
-__global__ void cuda_find_gmax(find_gmax_param param, int N)
+__global__ void cuda_find_gmax(find_gmax_param param, int N, bool debug)
 {
-	D_GmaxReducer func(param.dh_gmax, param.dh_gmax2, param.dh_gmax_idx, param.result_gmax, param.result_gmax2, param.result_gmax_idx); // class defined in CudaReducer.h
+	D_GmaxReducer func(param.dh_gmax, param.dh_gmax2, param.dh_gmax_idx, param.result_gmax, 
+		param.result_gmax2, param.result_gmax_idx, debug); // class defined in CudaReducer.h
 
 	device_block_reducer(func, N); // Template function defined in CudaReducer.h
 
@@ -468,6 +474,15 @@ __global__ void cuda_find_gmax(find_gmax_param param, int N)
 		d_solver.x = func.return_idx();
 }
 
+
+
+__global__ void cuda_setup_x_square(int N)
+{
+	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	if (i >= N)
+		return;
+	d_x_square[i] = dot(i, i);
+}
 
 __global__ void cuda_prep_gmax(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int *dh_gmax_idx, int N)
 {
@@ -479,7 +494,6 @@ __global__ void cuda_prep_gmax(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int 
 	dh_gmax[t] = -GRADVALUE_MAX;
 	dh_gmax2[t] = -GRADVALUE_MAX;
 	dh_gmax_idx[t] = -1;
-
 	if (d_y[t] == +1)
 	{
 		if (!(d_alpha_status[t] == UPPER_BOUND) /*is_upper_bound(t)*/) {
@@ -501,7 +515,6 @@ __global__ void cuda_prep_gmax(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int 
 		}
 	}
 }
-
 
 __device__	__forceinline__ double device_get_C(int i)
 {
@@ -697,7 +710,7 @@ __global__ void cuda_compute_nu_obj_diff(GradValue_t Gmaxp, GradValue_t Gmaxn, C
 		if (!(d_alpha_status[j] == LOWER_BOUND)/*is_lower_bound(j)*/)
 		{
 			GradValue_t grad_diff = Gmaxp + d_G[j];
-			if (grad_diff > 1e-6) // original: grad_diff > 0
+			if (grad_diff > DEVICE_EPS) // original: grad_diff > 0
 			{
 				CValue_t quad_coef = d_QD[ip] + d_QD[j] - 2.0 * cuda_evalQ(ip, j);
 				CValue_t obj_diff = CVALUE_MAX;
@@ -721,7 +734,7 @@ __global__ void cuda_compute_nu_obj_diff(GradValue_t Gmaxp, GradValue_t Gmaxn, C
 		if (!(d_alpha_status[j] == UPPER_BOUND) /*is_upper_bound(j)*/)
 		{
 			GradValue_t grad_diff = Gmaxn - d_G[j];
-			if (grad_diff > 1e-6) // original: grad_diff > 0
+			if (grad_diff > DEVICE_EPS) // original: grad_diff > 0
 			{
 				CValue_t quad_coef = d_QD[in] + d_QD[j] - 2.0 * cuda_evalQ(in, j);
 				CValue_t obj_diff = CVALUE_MAX;
@@ -755,4 +768,14 @@ __global__ void cuda_find_nu_min_idx(CValue_t *obj_diff_array, int *obj_diff_ind
 			d_solver.x = d_nu_solver.y; /* Gmaxn_idx */
 	}
 }
+
+/**************** DEBUGGING ********************/
+/**
+useful for peeking at various misc values when debugging
+*/
+__global__ void cuda_peek(int i, int j)
+{
+	printf("Q(%d,%d)=%g\n", i, j, cuda_evalQ(i, j));
+}
+
 

@@ -22,6 +22,10 @@
 
 /*********** Device function kernels ************/
 
+__global__ void cuda_peek(int i, int j); // Useful for debugging but services no other purpose
+
+__global__ void cuda_setup_x_square(int N);
+
 /**
 cuda_find_min_idx:
 shared memory requirement: block_size * (sizeof(CValue_t) + sizeof(int))
@@ -50,7 +54,7 @@ struct find_gmax_param
 cuda_find_gmax:
 shared memory requirement: block_size * (2 * sizeof(GradValue_t) + sizeof(int))
 */
-__global__ void cuda_find_gmax(find_gmax_param param, int N);
+__global__ void cuda_find_gmax(find_gmax_param param, int N, bool debug);
 
 __global__ void cuda_compute_alpha();
 
