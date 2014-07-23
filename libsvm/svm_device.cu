@@ -172,7 +172,8 @@ __device__ CValue_t dot(int i, int j)
 	int i_col = d_x[i];
 	int j_col = d_x[j];
 	/**
-	remember: cuda_svm_node.x == svm_node.index
+	remember: 
+	cuda_svm_node.x == svm_node.index
 	cuda_svm_node.y == svm_node.value
 	*/
 #define index x
@@ -260,7 +261,7 @@ __device__ __forceinline__ int device_SVR_real_index(int i)
 	@param j	index j
 	@param rc	multiplier for the kernel function
 */
-__device__ __forceinline__ CValue_t kernel(const int &i, const int &j, CValue_t rc)
+__device__ __forceinline__ CValue_t kernel(const int &i, const int &j, const CValue_t &rc)
 {
 	switch (d_kernel_type)
 	{
