@@ -183,7 +183,7 @@ __device__ CValue_t dot(int i, int j)
 	cuda_svm_node y = get_col_value(j_col);
 
 	double sum = 0;
-	while (x.x != -1 && y.x != -1)
+	while (x.index != -1 && y.index != -1)
 	{
 		if (x.index == y.index)
 		{
