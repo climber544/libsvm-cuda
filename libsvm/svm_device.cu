@@ -236,30 +236,10 @@ __device__ CValue_t device_kernel_precomputed(const int &i, const int &j)
 }
 
 /**
-	Implements schar *SVR_Q::sign
-	[0..l-1] --> 1
-	[l..2*l) --> -1
-*/
-__device__ __forceinline__ SChar_t device_SVR_sign(int i)
-{
-	return (i < d_l ? 1 : -1);
-}
-
-/**
-	Implements int *SVR_Q::index
-	[0..l-1] --> [0..l-1]
-	[l..2*l) --> [0..1-1]
-*/
-__device__ __forceinline__ int device_SVR_real_index(int i)
-{
-	return (i < d_l ? i : (i - d_l));
-}
-
-/**
-	Returns the product of the kernel function multiplied with rc
-	@param i	index i
-	@param j	index j
-	@param rc	multiplier for the kernel function
+Returns the product of the kernel function multiplied with rc
+@param i	index i
+@param j	index j
+@param rc	multiplier for the kernel function
 */
 __device__ __forceinline__ CValue_t kernel(const int &i, const int &j, const CValue_t &rc)
 {
@@ -278,6 +258,26 @@ __device__ __forceinline__ CValue_t kernel(const int &i, const int &j, const CVa
 	}
 
 	return 0;
+}
+
+/**
+	Implements schar *SVR_Q::sign
+	[0..l-1] --> 1
+	[l..2*l) --> -1
+*/
+__device__ __forceinline__ SChar_t device_SVR_sign(int i)
+{
+	return (i < d_l ? 1 : -1);
+}
+
+/**
+	Implements int *SVR_Q::index
+	[0..l-1] --> [0..l-1]
+	[l..2*l) --> [0..1-1]
+*/
+__device__ __forceinline__ int device_SVR_real_index(int i)
+{
+	return (i < d_l ? i : (i - d_l));
 }
 
 __device__ CValue_t cuda_evalQ(int i, int j)
