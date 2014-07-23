@@ -226,6 +226,7 @@ void CudaSolver::setup_solver(const SChar_t *y, double *G, double *alpha, char *
 #ifdef DEBUG_CHECK
 	show_memory_usage(mem_size);
 #endif
+
 	dbgprintf(true, "CudaSolver::setup_solver: elapsed time = %f\n", (float)(clock() - now) / CLOCKS_PER_SEC); 
 	startup_time = clock() - startup_time;
 	dbgprintf(true, "CudaSolver: Total startup time = %f s\n", (float)(startup_time) / CLOCKS_PER_SEC);
@@ -233,7 +234,7 @@ void CudaSolver::setup_solver(const SChar_t *y, double *G, double *alpha, char *
 	return;
 }
 
-void CudaSolver::setup_rbf_variables( int l)
+void CudaSolver::setup_rbf_variables(int l)
 {
 	if (kernel_type != RBF)
 		return;
@@ -284,57 +285,76 @@ void CudaSolver::load_problem_parameters(const svm_problem &prob, const svm_para
 		}
 		++elements; // count the row terminating svm_node
 	}
+	dbgprintf(true, "load_problem_parameters: %d elements need to be moved to device\n", elements);
 
+#define TRANSFER_CHUNK_SIZE		1000000
 	/**
 	NOTE: cuda_svm_node is typedef to float2
 	float2.x == svm_node.index
 	float2.y == svm_node.value
 	*/
-	std::unique_ptr<cuda_svm_node[]> x_space(new cuda_svm_node[elements]);
-	for (int i = 0, j = 0; i < l; ++i) {
-		const svm_node *tmp = x[i];
-		while (tmp->index != -1) {
-			x_space[j].x = static_cast<float>(tmp->index);
-			x_space[j].y = static_cast<float>(tmp->value);
+	dh_space = make_unique_cuda_array<cuda_svm_node>(elements);
+	{
+		int next_loc = 0; // index in dh_space to move elements too
+		int j = 0; // index for x_space
+		int transfer_chunk = std::min(TRANSFER_CHUNK_SIZE, elements);
+		std::unique_ptr<cuda_svm_node[]> x_space(new cuda_svm_node[transfer_chunk]); 
+		for (int i = 0; i < l; ++i) {
+			const svm_node *tmp = x[i];
+			while (tmp->index != -1) {
+				x_space[j].x = static_cast<float>(tmp->index);
+				x_space[j].y = static_cast<float>(tmp->value);
 #ifdef DEBUG_VERIFY
-			if (abs(tmp->value - x_space[j].y) > 1e-4) {
-				std::cerr << "WARNING!: sample space value truncated by "
-					<< abs(tmp->value - x_space[j].y) << std::endl;
-			}
+				if (abs(tmp->value - x_space[j].y) > 1e-4) {
+					std::cerr << "WARNING!: sample space value truncated by "
+						<< abs(tmp->value - x_space[j].y) << std::endl;
+				}
 #endif
-			++j;
-			++tmp;
+				++tmp;
+				++j;
+				if (j == transfer_chunk) {
+					// x_space is full, time to transfer to device
+					dbgprintf(true, "load_problem_parameters: transferring %d bytes (%d elements) to starting index %d\n",
+						j * sizeof(cuda_svm_node), j, next_loc);
+					err = cudaMemcpy(&dh_space[next_loc], &x_space[0], j * sizeof(cuda_svm_node), cudaMemcpyHostToDevice);
+					check_cuda_return("fail to copy to device for dh_space", err);
+					next_loc += j; // next position in dh_space to fill
+					j = 0; // reset index
+				}
+			}
+			x_space[j++].x = -1;
+			if (j == transfer_chunk) {
+				// x_space is full, time to transfer to device
+				dbgprintf(true, "load_problem_parameters: transferring %d bytes (%d elements) to starting index %d\n",
+					j * sizeof(cuda_svm_node), j, next_loc);
+				err = cudaMemcpy(&dh_space[next_loc], &x_space[0], j * sizeof(cuda_svm_node), cudaMemcpyHostToDevice);
+				check_cuda_return("fail to copy to device for dh_space", err);
+				next_loc += j;  // next position in dh_space to fill
+				j = 0; // reset
+			}
 		}
-		x_space[j++].x = -1;
+		if (j > 0) {
+			dbgprintf(true, "load_problem_parameters: final transfer of %d bytes (%d elements) to starting index %d\n",
+				j * sizeof(cuda_svm_node), j, next_loc);
+			err = cudaMemcpy(&dh_space[next_loc], &x_space[0], j * sizeof(cuda_svm_node), cudaMemcpyHostToDevice);
+			check_cuda_return("fail to copy to device for dh_space", err);
+		}
 	}
 
-	dh_space = make_unique_cuda_array<cuda_svm_node>(elements);
-
-	err = cudaMemcpy(&dh_space[0], &x_space[0], sizeof(cuda_svm_node) * elements, cudaMemcpyHostToDevice);
-	check_cuda_return("fail to copy to device for dh_space", err);
-
+	dbgprintf(true, "load_problem_parameters: setting up dh_x\n");
 	dh_x = make_unique_cuda_array<int>(l);
-
 	{
+		int j = 0;
 		std::unique_ptr<int[]> h_x(new int[l]);
-
-		int i = 0;
-		bool assign_flag = false;
-		for (int j = 0; j < elements; ++j)
-		{
-			if (!assign_flag) {
-				if (i >= l) {
-					throw std::runtime_error("error in updating h_x");
-				}
-				h_x[i] = j;
-				assign_flag = true;
+		for (int i = 0; i < l; ++i) {
+			h_x[i] = j;
+			const svm_node *tmp = x[i];
+			while (tmp->index != -1) {
+				++j;
+				++tmp;
 			}
-			if (x_space[j].x == -1) {
-				++i;
-				assign_flag = false;
-			}
+			j++;
 		}
-
 		err = cudaMemcpy(&dh_x[0], &h_x[0], sizeof(int) * l, cudaMemcpyHostToDevice);
 		check_cuda_return("fail to copy to device for dh_x", err);
 	}
@@ -348,7 +368,14 @@ CudaSolver::CudaSolver(const svm_problem &prob, const svm_parameter &param, bool
 {
 	startup_time = clock();
 	dbgprintf(true, "CudaSolver: GO!\n"); // DEBUG
-	load_problem_parameters(prob, param);
+	try {
+		load_problem_parameters(prob, param);		
+	}
+	catch (std::exception &e) {
+		std::cerr << "Fail to load problem parameters: " << e.what() << std::endl;
+		cudaDeviceReset();
+		exit(1);
+	}
 	dbgprintf(true, "CudaSolver::CudaSolver: elapsed time = %f \n", (float)(clock() - startup_time)/CLOCKS_PER_SEC); // DEBUG
 }
 
