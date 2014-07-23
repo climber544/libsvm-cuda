@@ -260,7 +260,7 @@ private:
 	Initializes the cuda device memory array
 	*/
 	void init_obj_diff_space(int l);
-	virtual void init_gmax_space(int l); // CudaNuSolver will override this
+	virtual void init_gmax_space(int l); // CudaSolverNU will override this
 
 	/**
 	init_memory_arrays:

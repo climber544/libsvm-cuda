@@ -22,7 +22,7 @@
 
 /*********** Device function kernels ************/
 
-__global__ void cuda_peek(int i, int j); // Useful for debugging but services no other purpose
+__global__ void cuda_peek(int i, int j); // Useful for debugging but serves no other purpose
 
 __global__ void cuda_setup_x_square(int N);
 
