@@ -1,4 +1,4 @@
-#include "CudaSolver.h"
+#include "cuda_solver.h"
 #include "math.h"
 
 #include "svm.h"
@@ -6,7 +6,7 @@
 #include <iostream>
 using namespace std;
 #include "svm_device.h"
-#include "CudaReducer.h"
+#include "cuda_reducer.h"
 
 #define DEVICE_EPS	0
 

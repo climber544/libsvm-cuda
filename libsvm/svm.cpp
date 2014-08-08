@@ -9,8 +9,8 @@
 #include <locale.h>
 #include "svm.h"
 
-#include "CudaSolver.h" // CUDA INTEGRATION
-#include "CudaSolverNU.h" // CUDA INTEGRATION
+#include "cuda_solver.h" // CUDA INTEGRATION
+#include "cuda_solverNU.h" // CUDA INTEGRATION
 
 int libsvm_version = LIBSVM_VERSION;
 typedef float Qfloat;

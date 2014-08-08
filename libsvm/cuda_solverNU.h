@@ -19,7 +19,7 @@
 #ifndef _CUDA_NU_SOLVER_H_
 #define _CUDA_NU_SOLVER_H_
 
-#include "CudaSolver.h"
+#include "cuda_solver.h"
 
 class CudaSolverNU : public CudaSolver
 {

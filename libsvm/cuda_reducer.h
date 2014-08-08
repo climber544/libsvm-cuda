@@ -18,7 +18,7 @@
 */
 #ifndef _CUDA_TEMPLATES_H_
 #define _CUDA_TEMPLATES_H_
-#include "CudaSolver.h"
+#include "cuda_solver.h"
 
 extern __shared__ char ss[];
 

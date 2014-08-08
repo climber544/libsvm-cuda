@@ -18,7 +18,7 @@
 */
 #ifndef _CUDA_DEVICE_FUNCTION_H_
 #define _CUDA_DEVICE_FUNCTION_H_
-#include "CudaSolver.h"
+#include "cuda_solver.h"
 
 /*********** Device function kernels ************/
 

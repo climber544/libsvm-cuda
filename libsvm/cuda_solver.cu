@@ -1,4 +1,4 @@
-#include "CudaSolver.h"
+#include "cuda_solver.h"
 #include "svm_device.h"
 #include <memory>
 

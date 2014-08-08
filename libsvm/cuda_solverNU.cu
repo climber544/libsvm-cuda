@@ -1,4 +1,4 @@
-#include "CudaSolverNU.h"
+#include "cuda_solverNU.h"
 #include "svm_device.h"
 
 /*********** NuGmaxReducer ****************/
