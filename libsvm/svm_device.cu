@@ -314,6 +314,7 @@ __global__ void cuda_find_min_idx(CValue_t *obj_diff_array, int *obj_diff_indx, 
 		d_solver.y = func.return_idx();
 }
 
+
 __global__ void cuda_compute_obj_diff(GradValue_t Gmax, CValue_t *dh_obj_diff_array, int *result_indx, int N)
 {
 	int i = d_solver.x;
@@ -664,6 +665,8 @@ __global__ void cuda_update_alpha_status()
 }
 
 /*********** NU Solver ************/
+
+
 __global__ void cuda_prep_nu_gmax(GradValue_t *dh_gmaxp, GradValue_t *dh_gmaxn, GradValue_t *dh_gmaxp2, GradValue_t *dh_gmaxn2,
 	int *dh_gmaxp_idx, int *dh_gmaxn_idx, int N)
 {
@@ -701,22 +704,7 @@ __global__ void cuda_prep_nu_gmax(GradValue_t *dh_gmaxp, GradValue_t *dh_gmaxn, 
 	}
 }
 
-__global__ void cuda_find_nu_gmax(find_nu_gmax_param param, int N)
-{
-	D_NuGmaxReducer func(param.dh_gmaxp, param.dh_gmaxn, param.dh_gmaxp2, param.dh_gmaxn2, param.dh_gmaxp_idx, param.dh_gmaxn_idx,
-		param.result_gmaxp, param.result_gmaxn, param.result_gmaxp2, param.result_gmaxn2, param.result_gmaxp_idx, param.result_gmaxn_idx);
-
-	device_block_reducer(func, N);
-
-	if (blockIdx.x == 0) {
-		int ip, in;
-		func.return_idx(ip, in);
-		d_nu_solver.x = ip;
-		d_nu_solver.y = in;
-	}
-}
-
-__global__ void cuda_compute_nu_obj_diff(GradValue_t Gmaxp, GradValue_t Gmaxn, CValue_t *dh_obj_diff_array, int *result_indx, int N)
+__global__ void cuda_compute_nu_obj_diff(GradValue_t Gmaxp, GradValue_t Gmaxn, CValue_t *dh_obj_diff_array, int *result_idx, int N)
 {
 	int ip = d_nu_solver.x;
 	int in = d_nu_solver.y;
@@ -726,7 +714,7 @@ __global__ void cuda_compute_nu_obj_diff(GradValue_t Gmaxp, GradValue_t Gmaxn, C
 		return;
 
 	dh_obj_diff_array[j] = CVALUE_MAX;
-	result_indx[j] = -1;
+	result_idx[j] = -1;
 	if (d_y[j] == 1)
 	{
 		if (!(d_alpha_status[j] == LOWER_BOUND)/*is_lower_bound(j)*/)
@@ -746,7 +734,7 @@ __global__ void cuda_compute_nu_obj_diff(GradValue_t Gmaxp, GradValue_t Gmaxn, C
 				CHECK_FLT_RANGE(obj_diff);
 				CHECK_FLT_INF(obj_diff);
 				dh_obj_diff_array[j] = obj_diff;
-				result_indx[j] = j;
+				result_idx[j] = j;
 			}
 
 		}
@@ -770,16 +758,35 @@ __global__ void cuda_compute_nu_obj_diff(GradValue_t Gmaxp, GradValue_t Gmaxn, C
 				CHECK_FLT_RANGE(obj_diff);
 				CHECK_FLT_INF(obj_diff);
 				dh_obj_diff_array[j] = obj_diff;
-				result_indx[j] = j;
+				result_idx[j] = j;
 			}
 		}
 	}
 
 }
 
-__global__ void cuda_find_nu_min_idx(CValue_t *obj_diff_array, int *obj_diff_indx, CValue_t *result_obj_min, int *result_indx, int N)
+
+
+__global__ void cuda_find_nu_gmax(find_nu_gmax_param param, int N)
 {
-	D_MinIdxReducer func(obj_diff_array, obj_diff_indx, result_obj_min, result_indx); // Class defined in CudaReducer.h
+	D_NuGmaxReducer func(param.dh_gmaxp, param.dh_gmaxn, param.dh_gmaxp2, param.dh_gmaxn2, param.dh_gmaxp_idx, param.dh_gmaxn_idx,
+		param.result_gmaxp, param.result_gmaxn, param.result_gmaxp2, param.result_gmaxn2, param.result_gmaxp_idx, param.result_gmaxn_idx);
+
+	device_block_reducer(func, N);
+
+	if (blockIdx.x == 0) {
+		int ip, in;
+		func.return_idx(ip, in);
+		d_nu_solver.x = ip;
+		d_nu_solver.y = in;
+	}
+}
+
+
+
+__global__ void cuda_find_nu_min_idx(CValue_t *obj_diff_array, int *obj_diff_idx, CValue_t *result_obj_min, int *result_idx, int N)
+{
+	D_MinIdxReducer func(obj_diff_array, obj_diff_idx, result_obj_min, result_idx); // Class defined in CudaReducer.h
 	device_block_reducer(func, N); // Template function defined in CudaReducer.h
 	if (blockIdx.x == 0) {
 		int j = func.return_idx();
@@ -790,6 +797,81 @@ __global__ void cuda_find_nu_min_idx(CValue_t *obj_diff_array, int *obj_diff_ind
 			d_solver.x = d_nu_solver.y; /* Gmaxn_idx */
 	}
 }
+
+/************DEVICE KERNEL LAUNCHERS***************/
+void launch_cuda_setup_x_square(size_t num_blocks, size_t block_size, int N)
+{
+	cuda_setup_x_square << <num_blocks, block_size >> >(N);
+}
+
+void launch_cuda_setup_QD(size_t num_blocks, size_t block_size, int N)
+{
+	cuda_setup_QD << <num_blocks, block_size >> >(N);
+}
+
+
+void launch_cuda_compute_obj_diff(size_t num_blocks, size_t block_size, GradValue_t Gmax, CValue_t *dh_obj_diff_array, int *result_idx, int N)
+{
+	cuda_compute_obj_diff << <num_blocks, block_size >> > (Gmax, dh_obj_diff_array, result_idx, N);
+}
+
+void launch_cuda_update_gradient(size_t num_blocks, size_t block_size, int N)
+{
+	cuda_update_gradient << <num_blocks, block_size >> > (N);
+}
+
+void launch_cuda_init_gradient(size_t num_blocks, size_t block_size, int start, int step, int N)
+{
+	cuda_init_gradient << < num_blocks, block_size>> > (start, step, N);
+}
+
+void launch_cuda_prep_gmax(size_t num_blocks, size_t block_size, GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int *dh_gmax_idx, int N)
+{
+	cuda_prep_gmax << < num_blocks, block_size>> > (dh_gmax, dh_gmax2, dh_gmax_idx, N);
+}
+
+void launch_cuda_compute_alpha(size_t num_blocks, size_t block_size)
+{
+	cuda_compute_alpha << <num_blocks, block_size >> >();
+}
+
+void launch_cuda_update_alpha_status(size_t num_blocks, size_t block_size)
+{
+	cuda_update_alpha_status << <num_blocks, block_size >> >();
+}
+
+void launch_cuda_find_min_idx(size_t num_blocks, size_t block_size, size_t share_mem_size, CValue_t *obj_diff_array, int *obj_diff_idx, CValue_t *result_obj_min, int *result_idx, int N)
+{
+	cuda_find_min_idx << <num_blocks, block_size, share_mem_size >> >(obj_diff_array, obj_diff_idx, result_obj_min, result_idx, N);
+}
+
+void launch_cuda_find_gmax(size_t num_blocks, size_t block_size, size_t share_mem_size, find_gmax_param param, int N, bool debug)
+{
+	cuda_find_gmax << <num_blocks, block_size, share_mem_size >> >(param, N, debug);
+}
+
+void launch_cuda_find_nu_min_idx(size_t num_blocks, size_t block_size, size_t share_mem_size, CValue_t *obj_diff_array, int *obj_diff_idx, CValue_t *result_obj_min, int *result_idx, int N)
+{
+	cuda_find_nu_min_idx << <num_blocks, block_size, share_mem_size >> >(obj_diff_array, obj_diff_idx, result_obj_min, result_idx, N);
+}
+
+void launch_cuda_find_nu_gmax(size_t num_blocks, size_t block_size, size_t share_mem_size, find_nu_gmax_param param, int N)
+{
+	cuda_find_nu_gmax << <num_blocks, block_size, share_mem_size >> >(param, N);
+}
+
+void launch_cuda_compute_nu_obj_diff(size_t num_blocks, size_t block_size, GradValue_t Gmaxp, GradValue_t Gmaxn, CValue_t *dh_obj_diff_array, int *result_idx, int N)
+{
+	cuda_compute_nu_obj_diff << <num_blocks, block_size >> > (Gmaxp, Gmaxn, dh_obj_diff_array, result_idx, N);
+}
+
+void launch_cuda_prep_nu_gmax(size_t num_blocks, size_t block_size, GradValue_t *dh_gmaxp, GradValue_t *dh_gmaxn, GradValue_t *dh_gmaxp2, GradValue_t *dh_gmaxn2,
+	int *dh_gmaxp_idx, int *dh_gmaxn_idx, int N)
+{
+	cuda_prep_nu_gmax << <num_blocks, block_size >> > (dh_gmaxp, dh_gmaxn, dh_gmaxp2, dh_gmaxn2, dh_gmaxp_idx, dh_gmaxn_idx, N);
+}
+
+
 
 /**************** DEBUGGING ********************/
 /**

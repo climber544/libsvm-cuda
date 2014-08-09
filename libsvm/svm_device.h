@@ -22,25 +22,21 @@
 
 /*********** Device function kernels ************/
 
-__global__ void cuda_peek(int i, int j); // Useful for debugging but serves no other purpose
+void launch_cuda_setup_x_square(size_t num_blocks, size_t block_size, int N);
 
-__global__ void cuda_setup_x_square(int N);
+void launch_cuda_setup_QD(size_t num_blocks, size_t block_size, int N);
 
-__global__ void cuda_setup_QD(int N);
+void launch_cuda_compute_obj_diff(size_t num_blocks, size_t block_size, GradValue_t Gmax, CValue_t *dh_obj_diff_array, int *result_indx, int N);
 
-/**
-cuda_find_min_idx:
-shared memory requirement: block_size * (sizeof(CValue_t) + sizeof(int))
-*/
-__global__ void cuda_find_min_idx(CValue_t *obj_diff_array, int *obj_diff_indx, CValue_t *result_obj_min, int *result_indx, int N);
+void launch_cuda_update_gradient(size_t num_blocks, size_t block_size, int N);
 
-__global__ void cuda_compute_obj_diff(GradValue_t Gmax, CValue_t *dh_obj_diff_array, int *result_indx, int N);
+void launch_cuda_init_gradient(size_t num_blocks, size_t block_size, int start, int step, int N);
 
-__global__ void cuda_update_gradient(int N);
+void launch_cuda_prep_gmax(size_t num_blocks, size_t block_size, GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int *dh_gmax_idx, int N);
 
-__global__ void cuda_init_gradient(int start, int step, int N);
+void launch_cuda_compute_alpha(size_t num_blocks, size_t block_size);
 
-__global__ void cuda_prep_gmax(GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int *dh_gmax_idx, int N);
+void launch_cuda_update_alpha_status(size_t num_blocks, size_t block_size);
 
 struct find_gmax_param
 {
@@ -51,31 +47,20 @@ struct find_gmax_param
 	GradValue_t *result_gmax2;
 	int *result_gmax_idx;
 };
-
 /**
 cuda_find_gmax:
 shared memory requirement: block_size * (2 * sizeof(GradValue_t) + sizeof(int))
 */
-__global__ void cuda_find_gmax(find_gmax_param param, int N, bool debug);
+void launch_cuda_find_gmax(size_t num_blocks, size_t block_size, size_t share_mem_size, find_gmax_param param, int N, bool debug);
+/**
+cuda_find_min_idx:
+shared memory requirement: block_size * (sizeof(CValue_t) + sizeof(int))
+*/
+void launch_cuda_find_min_idx(size_t num_blocks, size_t block_size, size_t share_mem_size, CValue_t *obj_diff_array, int *obj_diff_indx, CValue_t *result_obj_min, int *result_indx, int N);
 
-__global__ void cuda_compute_alpha();
-
-__global__ void cuda_update_alpha_status();
 
 
 /****** NU Solver device function kernels *********/
-
-/**
-cuda_find_nu_min_idx:
-shared memory requirement: block_size * (sizeof(CValue_t) + sizeof(int))
-*/
-__global__ void cuda_find_nu_min_idx(CValue_t *obj_diff_array, int *obj_diff_indx, CValue_t *result_obj_min, int *result_indx, int N);
-
-__global__ void cuda_compute_nu_obj_diff(GradValue_t Gmaxp, GradValue_t Gmaxn, CValue_t *dh_obj_diff_array, int *result_indx, int N);
-
-__global__ void cuda_prep_nu_gmax(GradValue_t *dh_gmaxp, GradValue_t *dh_gmaxn, GradValue_t *dh_gmaxp2, GradValue_t *dh_gmaxn2,
-	int *dh_gmaxp_idx, int *dh_gmaxn_idx, int N);
-
 struct find_nu_gmax_param
 {
 	GradValue_t *dh_gmaxp;
@@ -93,11 +78,18 @@ struct find_nu_gmax_param
 };
 
 /**
-cuda_find_nu_gmax: 
+cuda_find_nu_gmax:
 shared memory requirement: block_size * (4 * sizeof(GradValue_t) + 2 * sizeof(int) )
 */
-__global__ void cuda_find_nu_gmax(find_nu_gmax_param param, int N);
-
+void launch_cuda_find_nu_gmax(size_t num_blocks, size_t block_size, size_t share_mem_size, find_nu_gmax_param param, int N);
+/**
+cuda_find_nu_min_idx:
+shared memory requirement: block_size * (sizeof(CValue_t) + sizeof(int))
+*/
+void launch_cuda_find_nu_min_idx(size_t num_blocks, size_t block_size, size_t share_mem_size, CValue_t *obj_diff_array, int *obj_diff_indx, CValue_t *result_obj_min, int *result_indx, int N);
+void launch_cuda_compute_nu_obj_diff(size_t num_blocks, size_t block_size, GradValue_t Gmaxp, GradValue_t Gmaxn, CValue_t *dh_obj_diff_array, int *result_indx, int N);
+void launch_cuda_prep_nu_gmax(size_t num_blocks, size_t block_size, GradValue_t *dh_gmaxp, GradValue_t *dh_gmaxn, GradValue_t *dh_gmaxp2, GradValue_t *dh_gmaxn2,
+	int *dh_gmaxp_idx, int *dh_gmaxn_idx, int N);
 
 /********** Host functions ***********/
 cudaError_t update_solver_variables(SChar_t *dh_y, CValue_t *dh_QD, GradValue_t *dh_G, GradValue_t *dh_alpha, char *dh_alpha_status, double Cp, double Cn);

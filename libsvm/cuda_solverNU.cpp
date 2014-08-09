@@ -46,7 +46,7 @@ public:
 		param.result_gmaxp_idx = output_idx1;
 		param.result_gmaxn_idx = output_idx2;
 
-		cuda_find_nu_gmax << <reduce_blocks, reduce_block_size, share_mem_size >> >(param, N);
+		launch_cuda_find_nu_gmax(reduce_blocks, reduce_block_size, share_mem_size, param, N);
 	}
 
 	void swap() {
@@ -96,7 +96,7 @@ public:
 	void compute(size_t reduce_blocks, size_t reduce_block_size, int N)
 	{
 		size_t share_mem_size = reduce_block_size*(sizeof(CValue_t) + sizeof(int));
-		cuda_find_nu_min_idx << <reduce_blocks, reduce_block_size, share_mem_size >> >(input_array, input_idx, output_array, output_idx, N);
+		launch_cuda_find_nu_min_idx(reduce_blocks, reduce_block_size, share_mem_size, input_array, input_idx, output_array, output_idx, N);
 	}
 
 	void swap()
@@ -134,7 +134,7 @@ void CudaSolverNU::init_gmax_space(int l)
 
 void CudaSolverNU::select_working_set_j(GradValue_t Gmaxp, GradValue_t Gmaxn, int l)
 {
-	cuda_compute_nu_obj_diff << <num_blocks, block_size >> >(Gmaxp, Gmaxn, &dh_obj_diff_array[0], &dh_obj_diff_idx[0], l);
+	launch_cuda_compute_nu_obj_diff(num_blocks, block_size, Gmaxp, Gmaxn, &dh_obj_diff_array[0], &dh_obj_diff_idx[0], l);
 
 	NuMinIdxReducer func(&dh_obj_diff_array[0], &dh_obj_diff_idx[0], &dh_result_obj_diff[0], &dh_result_idx[0]);
 
@@ -151,7 +151,7 @@ int CudaSolverNU::select_working_set(int &out_i, int &out_j, int l)
 	GradValue_t Gmaxn = -GRADVALUE_MAX;
 	GradValue_t Gmaxn2 = -GRADVALUE_MAX;
 
-	cuda_prep_nu_gmax << <num_blocks, block_size >> >(&dh_gmaxp[0], &dh_gmaxn[0], &dh_gmaxp2[0], &dh_gmaxn2[0],
+	launch_cuda_prep_nu_gmax(num_blocks, block_size, &dh_gmaxp[0], &dh_gmaxn[0], &dh_gmaxp2[0], &dh_gmaxn2[0],
 		&dh_gmaxp_idx[0], &dh_gmaxn_idx[0], l);
 
 	NuGmaxReducer func(&dh_gmaxp[0], &dh_gmaxn[0], &dh_gmaxp2[0], &dh_gmaxn2[0],

@@ -19,7 +19,7 @@ public:
 	void compute(size_t reduce_blocks, size_t reduce_block_size, int N)
 	{
 		size_t share_mem_size = reduce_block_size*(sizeof(CValue_t) + sizeof(int));
-		cuda_find_min_idx << <reduce_blocks, reduce_block_size, share_mem_size >> >(input_array, input_idx, output_array, output_idx, N);
+		launch_cuda_find_min_idx(reduce_blocks, reduce_block_size, share_mem_size, input_array, input_idx, output_array, output_idx, N);
 		check_cuda_kernel_launch("fail in cuda_find_min_idx");
 	}
 
@@ -64,7 +64,7 @@ public:
 		param.result_gmax_idx = output_idx;
 		logtrace("TRACE: GmaxReducer::compute: share_mem_size=%d, reduce_blocks=%d, reduce_block_size=%d, N=%d\n",
 			share_mem_size, reduce_blocks, reduce_block_size, N);
-		cuda_find_gmax << <reduce_blocks, reduce_block_size, share_mem_size >> >(param, N, debug);
+		launch_cuda_find_gmax(reduce_blocks, reduce_block_size, share_mem_size, param, N, debug);
 		check_cuda_kernel_launch("fail in cuda_find_gmax");
 	}
 
@@ -220,7 +220,7 @@ void CudaSolver::setup_solver(const SChar_t *y, double *G, double *alpha, char *
 
 	int nblocks, bsize;
 	find_launch_parameters(nblocks, bsize, l);
-	cuda_setup_QD<<<nblocks, bsize>>>(l);
+	launch_cuda_setup_QD(nblocks, bsize, l);
 	check_cuda_kernel_launch("fail in cuda_setup_QD");
 
 #ifdef DEBUG_CHECK
@@ -248,7 +248,7 @@ void CudaSolver::setup_rbf_variables(int l)
 		
 	int nblocks, bsize;
 	find_launch_parameters(nblocks, bsize, l);
-	cuda_setup_x_square << <nblocks, bsize >> >(l); // DEBUG
+	launch_cuda_setup_x_square(nblocks, bsize, l); 
 	check_cuda_kernel_launch("fail in cuda_setup_x_square");
 
 	dbgprintf(true, "CudaSolver::setup_rbf_variables: elapsed time = %f\n", (float)(clock() - now) / CLOCKS_PER_SEC); // DEBUG
@@ -389,14 +389,14 @@ CudaSolver::~CudaSolver()
 void CudaSolver::compute_alpha()
 {
 	logtrace("TRACE: compute_alpha\n");
-	cuda_compute_alpha << <1, 1 >> >();
+	launch_cuda_compute_alpha(1, 1);
 	check_cuda_kernel_launch("fail in cuda_compute_alpha");
 }
 
 void CudaSolver::update_alpha_status()
 {
 	logtrace("TRACE: update_alpha_status\n");
-	cuda_update_alpha_status << <1, 1 >> >();
+	launch_cuda_update_alpha_status(1, 1);
 	check_cuda_kernel_launch("fail in cuda_update_alpha_status");
 }
 
@@ -404,7 +404,7 @@ void CudaSolver::select_working_set_j(GradValue_t Gmax, int l)
 {
 	logtrace("TRACE: select_working_set_j: num_blocks=%d block_size=%d\n", num_blocks, block_size);
 
-	cuda_compute_obj_diff << <num_blocks, block_size >> >(Gmax, &dh_obj_diff_array[0], &dh_obj_diff_idx[0], l);
+	launch_cuda_compute_obj_diff(num_blocks, block_size, Gmax, &dh_obj_diff_array[0], &dh_obj_diff_idx[0], l);
 	check_cuda_kernel_launch("fail in cuda_compute_obj_diff");
 
 	logtrace("TRACE: select_working_set_j: starting cross_block_reducer\n");
@@ -423,7 +423,7 @@ int CudaSolver::select_working_set(int &out_i, int &out_j, int l)
 	GradValue_t Gmax = -GRADVALUE_MAX; // -INF;
 	GradValue_t Gmax2 = -GRADVALUE_MAX; // -INF;
 
-	cuda_prep_gmax << <num_blocks, block_size >> >(&dh_gmax[0], &dh_gmax2[0], &dh_gmax_idx[0], l);
+	launch_cuda_prep_gmax (num_blocks, block_size, &dh_gmax[0], &dh_gmax2[0], &dh_gmax_idx[0], l);
 	check_cuda_kernel_launch("fail in cuda_prep_gmax");
 
 	logtrace("TRACE: select_working_set: done preparing for finding gmax\n");
@@ -447,7 +447,7 @@ int CudaSolver::select_working_set(int &out_i, int &out_j, int l)
 void CudaSolver::update_gradient(int l)
 {
 	logtrace("TRACE: update_gradient: l = %d\n", l);
-	cuda_update_gradient << <num_blocks, block_size >> >(l);
+	launch_cuda_update_gradient(num_blocks, block_size, l);
 	check_cuda_kernel_launch("fail in cuda_update_gradient");
 }
 
