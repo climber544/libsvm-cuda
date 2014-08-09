@@ -1,10 +1,9 @@
-#include "cuda_solver.h"
 #include "math.h"
-
 #include "svm.h"
 #include <stdexcept>
 #include <iostream>
 using namespace std;
+#include "svm_defs.h"
 #include "svm_device.h"
 #include "cuda_reducer.h"
 
