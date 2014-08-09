@@ -135,7 +135,7 @@ cudaError_t update_solver_variables(SChar_t *dh_y, CValue_t *dh_QD, GradValue_t 
 cudaError_t update_rbf_variables(CValue_t *dh_x_square)
 {
 	cudaError_t err;
-	if (dh_x_square != nullptr) {
+	if (dh_x_square != NULL) {
 		err = cudaMemcpyToSymbol(d_x_square, &dh_x_square, sizeof(dh_x_square));
 		if (err != cudaSuccess) {
 			fprintf(stderr, "Error copying to symbol d_x_square\n");
