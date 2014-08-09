@@ -2,6 +2,7 @@
 #include <stdexcept>
 #include <iostream>
 using namespace std;
+#include <stdio.h>
 #include "math.h"
 #include "svm_device.h"
 #include "cuda_reducer.h"
