@@ -213,10 +213,13 @@ void CudaSolver::setup_solver(const SChar_t *y, double *G, double *alpha, char *
 	int step = 500; // Initialize step d_G entries at a time 
 					// NOTE: This can take awhile, so some devices will time out.  Adjust this value accordingly.
 	int start = 0;	// Starting index of d_G to update.
+	int left = active_size;
 	do {
+		step = std::min(left, step);
 		init_device_gradient(block_size, start, step, active_size);
 		start += step;
-	} while (start < active_size);
+		left -= step;
+	} while (left > 0);
 
 	int nblocks, bsize;
 	find_launch_parameters(nblocks, bsize, l);

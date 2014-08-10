@@ -406,6 +406,7 @@ __global__ void cuda_init_gradient(int start, int step, int N)
 	d_G[j] += acc;
 }
 
+#ifdef USE_DOUBLE_GRADIENT
 /**
 double version of atomicAdd
 */
@@ -421,6 +422,7 @@ __device__ double atomicAdd(double * address, double val)
 	} while (assumed != old);
 	return __longlong_as_double(old);
 }
+#endif
 
 __device__ GradValue_t device_computer_gradient(int i, int j)
 {
