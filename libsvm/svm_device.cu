@@ -6,13 +6,15 @@ using namespace std;
 #include "math.h"
 #include "svm_device.h"
 #include "cuda_reducer.h"
+#include "svm_cache.h"
 
 #define DEVICE_EPS	0
 
 enum { LOWER_BOUND = 0, UPPER_BOUND = 1, FREE = 2 };
 
 #ifdef USE_CONSTANT_SVM_NODE
-__constant__ cuda_svm_node      *d_space;
+__device__ cuda_svm_node		*d_space;
+__constant__ size_t				d_space_size;
 #else
 texture<float2, 1, cudaReadModeElementType> d_tex_space;
 #endif
@@ -39,6 +41,7 @@ __device__		GradValue_t		d_delta_alpha_j;
 
 __device__		int2			d_solver; // member x and y hold the selected i and j working set indices respectively
 __device__		int2			d_nu_solver; // member x and y hold the Gmaxp_idx and Gmaxn_idx indices respectively.  
+
 
 cudaError_t update_param_constants(const svm_parameter &param, int *dh_x, cuda_svm_node *dh_space, size_t dh_space_size, int l)
 {
@@ -82,6 +85,11 @@ cudaError_t update_param_constants(const svm_parameter &param, int *dh_x, cuda_s
 	err = cudaMemcpyToSymbol(d_space, &dh_space, sizeof(dh_space));
 	if (err != cudaSuccess) {
 		fprintf(stderr, "Error copying to symbol d_space\n");
+		return err;
+	}
+	err = cudaMemcpyToSymbol(d_space_size, &dh_space_size, sizeof(dh_space_size));
+	if (err != cudaSuccess) {
+		fprintf(stderr, "Error copying to symbol d_space_size\n");
 		return err;
 	}
 #else
@@ -153,10 +161,9 @@ void unbind_texture()
 #endif
 }
 
-
 __device__ __forceinline__ cuda_svm_node get_col_value(int i)
 {
-#ifdef USE_CONSTANT_SVM_NODE
+#ifdef USE_CONSTANT_SVM_NODE 
 	return d_space[i];
 #else
 	return tex1Dfetch(d_tex_space, i);
@@ -171,29 +178,26 @@ __device__ CValue_t dot(int i, int j)
 	int i_col = d_x[i];
 	int j_col = d_x[j];
 	/**
-	remember: 
+	remember:
 	cuda_svm_node.x == svm_node.index
 	cuda_svm_node.y == svm_node.value
 	*/
-#define index x
-#define value y
-
 	cuda_svm_node x = get_col_value(i_col);
 	cuda_svm_node y = get_col_value(j_col);
 
 	double sum = 0;
-	while (x.index != -1 && y.index != -1)
+	while (x.x != -1 && y.x != -1)
 	{
-		if (x.index == y.index)
+		if (x.x == y.x)
 		{
-			sum += x.value * y.value;
+			sum += x.y * y.y;
 			x = get_col_value(++i_col);
 			y = get_col_value(++j_col);
 		}
 		else
 		{
 
-			if (x.index > y.index) {
+			if (x.x > y.x) {
 				y = get_col_value(++j_col);
 			}
 			else {
@@ -263,7 +267,7 @@ __device__ __forceinline__ CValue_t kernel(const int &i, const int &j, const CVa
 	Implements schar *SVR_Q::sign
 	[0..l-1] --> 1
 	[l..2*l) --> -1
-*/
+	*/
 __device__ __forceinline__ SChar_t device_SVR_sign(int i)
 {
 	return (i < d_l ? 1 : -1);
@@ -273,7 +277,7 @@ __device__ __forceinline__ SChar_t device_SVR_sign(int i)
 	Implements int *SVR_Q::index
 	[0..l-1] --> [0..l-1]
 	[l..2*l) --> [0..1-1]
-*/
+	*/
 __device__ __forceinline__ int device_SVR_real_index(int i)
 {
 	return (i < d_l ? i : (i - d_l));
@@ -322,6 +326,17 @@ __global__ void cuda_compute_obj_diff(GradValue_t Gmax, CValue_t *dh_obj_diff_ar
 	if (j >= N)
 		return;
 
+	CValue_t Qij;
+	bool valid;
+	CValue_t *Qi = cache_get_Q(i, valid, STAGE_AREA_I); // staged for later use and update
+	if (valid) { // reuse what we already have
+		Qij = Qi[j];
+	}
+	else {
+		Qij = cuda_evalQ(i, j);
+		Qi[j] = Qij;
+	}
+
 	dh_obj_diff_array[j] = CVALUE_MAX;
 	result_indx[j] = -1;
 	if (d_y[j] == 1)
@@ -331,7 +346,8 @@ __global__ void cuda_compute_obj_diff(GradValue_t Gmax, CValue_t *dh_obj_diff_ar
 			GradValue_t grad_diff = Gmax + d_G[j];
 			if (grad_diff > DEVICE_EPS) // original: grad_diff > 0
 			{
-				CValue_t quad_coef = d_QD[i] + d_QD[j] - 2.0 * d_y[i] * cuda_evalQ(i, j);
+				// CValue_t quad_coef = d_QD[i] + d_QD[j] - 2.0 * d_y[i] * cuda_evalQ(i, j);
+				CValue_t quad_coef = d_QD[i] + d_QD[j] - 2.0 * d_y[i] * Qij;
 				CValue_t obj_diff = CVALUE_MAX;
 
 				if (quad_coef > 0) {
@@ -355,7 +371,8 @@ __global__ void cuda_compute_obj_diff(GradValue_t Gmax, CValue_t *dh_obj_diff_ar
 			GradValue_t grad_diff = Gmax - d_G[j];
 			if (grad_diff > DEVICE_EPS) // original: grad_diff > 0
 			{
-				CValue_t quad_coef = d_QD[i] + d_QD[j] + 2.0 * d_y[i] * cuda_evalQ(i, j);
+				// CValue_t quad_coef = d_QD[i] + d_QD[j] + 2.0 * d_y[i] * cuda_evalQ(i, j);
+				CValue_t quad_coef = d_QD[i] + d_QD[j] + 2.0 * d_y[i] * Qij;
 				CValue_t obj_diff = CVALUE_MAX;
 
 				if (quad_coef > 0) {
@@ -371,7 +388,6 @@ __global__ void cuda_compute_obj_diff(GradValue_t Gmax, CValue_t *dh_obj_diff_ar
 			}
 		}
 	}
-
 }
 
 __global__ void cuda_update_gradient(int N)
@@ -383,8 +399,25 @@ __global__ void cuda_update_gradient(int N)
 
 	if (k >= N)
 		return;
+	CValue_t *Qi, *Qj;
+	CValue_t Qik, Qjk;
 
-	d_G[k] += (cuda_evalQ(i, k) * d_delta_alpha_i + cuda_evalQ(j, k) * d_delta_alpha_j);
+	Qi = cache_get_Stage(STAGE_AREA_I);
+	Qik = Qi[k];
+
+	bool valid;
+	Qj = cache_get_Q(j, valid, STAGE_AREA_J);
+	if (valid) {
+		Qjk = Qj[k];
+	}
+	else {
+		Qjk = cuda_evalQ(j, k);
+		Qj[k] = Qjk;
+	}
+
+	d_G[k] += (Qik * d_delta_alpha_i + Qjk * d_delta_alpha_j);
+
+	// d_G[k] += (cuda_evalQ(i, k) * d_delta_alpha_i + cuda_evalQ(j, k) * d_delta_alpha_j);
 	// d_G[k] += t; // Q_i[k]*delta_alpha_i + Q_j[k]*delta_alpha_j;
 }
 
@@ -406,7 +439,7 @@ __global__ void cuda_init_gradient(int start, int step, int N)
 	d_G[j] += acc;
 }
 
-#ifdef USE_DOUBLE_GRADIENT
+#if USE_DOUBLE_GRADIENT
 /**
 double version of atomicAdd
 */
@@ -459,7 +492,7 @@ __global__ void cuda_init_gradient_block(int startj, int N)
 	@param startj		starting index j for G_j
 	@param stepj		number of steps from startj to update
 	@param N			size of gradient vector
-*/
+	*/
 void init_device_gradient(int block_size, int startj, int stepj, int N)
 {
 	int reduce_block_size = 2 * block_size;
@@ -471,7 +504,7 @@ void init_device_gradient(int block_size, int startj, int stepj, int N)
 	dim3 block;
 	block.x = block_size; // number of threads in the ith dimension
 	block.y = 1; // number of threads per block in the jth dimension (one thread per block)
-	
+
 	size_t shared_mem = block.x * sizeof(GradValue_t);
 	cuda_init_gradient_block << <grid, block, shared_mem >> > (startj, N);
 	check_cuda_kernel_launch("fail in cuda_init_gradient_block");
@@ -479,7 +512,7 @@ void init_device_gradient(int block_size, int startj, int stepj, int N)
 
 __global__ void cuda_find_gmax(find_gmax_param param, int N, bool debug)
 {
-	D_GmaxReducer func(param.dh_gmax, param.dh_gmax2, param.dh_gmax_idx, param.result_gmax, 
+	D_GmaxReducer func(param.dh_gmax, param.dh_gmax2, param.dh_gmax_idx, param.result_gmax,
 		param.result_gmax2, param.result_gmax_idx, debug); // class defined in CudaReducer.h
 
 	device_block_reducer(func, N); // Template function defined in CudaReducer.h
@@ -663,6 +696,8 @@ __global__ void cuda_update_alpha_status()
 
 	device_update_alpha_status(i);
 	device_update_alpha_status(j);
+
+	cache_commit_Stages(i, j);
 }
 
 /*********** NU Solver ************/
@@ -799,6 +834,7 @@ __global__ void cuda_find_nu_min_idx(CValue_t *obj_diff_array, int *obj_diff_idx
 	}
 }
 
+
 /************DEVICE KERNEL LAUNCHERS***************/
 void launch_cuda_setup_x_square(size_t num_blocks, size_t block_size, int N)
 {
@@ -823,12 +859,12 @@ void launch_cuda_update_gradient(size_t num_blocks, size_t block_size, int N)
 
 void launch_cuda_init_gradient(size_t num_blocks, size_t block_size, int start, int step, int N)
 {
-	cuda_init_gradient << < num_blocks, block_size>> > (start, step, N);
+	cuda_init_gradient << < num_blocks, block_size >> > (start, step, N);
 }
 
 void launch_cuda_prep_gmax(size_t num_blocks, size_t block_size, GradValue_t *dh_gmax, GradValue_t *dh_gmax2, int *dh_gmax_idx, int N)
 {
-	cuda_prep_gmax << < num_blocks, block_size>> > (dh_gmax, dh_gmax2, dh_gmax_idx, N);
+	cuda_prep_gmax << < num_blocks, block_size >> > (dh_gmax, dh_gmax2, dh_gmax_idx, N);
 }
 
 void launch_cuda_compute_alpha(size_t num_blocks, size_t block_size)
@@ -871,8 +907,6 @@ void launch_cuda_prep_nu_gmax(size_t num_blocks, size_t block_size, GradValue_t 
 {
 	cuda_prep_nu_gmax << <num_blocks, block_size >> > (dh_gmaxp, dh_gmaxn, dh_gmaxp2, dh_gmaxn2, dh_gmaxp_idx, dh_gmaxn_idx, N);
 }
-
-
 
 /**************** DEBUGGING ********************/
 /**

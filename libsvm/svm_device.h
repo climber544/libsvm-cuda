@@ -98,4 +98,9 @@ cudaError_t update_param_constants(const svm_parameter &param, int *dh_x, cuda_s
 void unbind_texture();
 void init_device_gradient(int block_size, int startj, int stepj, int N);
 
+/***** CACHE *******/
+void show_device_cache_stats();
+void setup_device_LRU_cache(CacheNode **dh_columns, CValue_t * dh_column_space, int space, int col_size);
+
+
 #endif

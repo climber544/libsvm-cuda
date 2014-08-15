@@ -226,6 +226,8 @@ void CudaSolver::setup_solver(const SChar_t *y, double *G, double *alpha, char *
 	launch_cuda_setup_QD(nblocks, bsize, l);
 	check_cuda_kernel_launch("fail in cuda_setup_QD");
 
+	setup_LRU_cache(active_size);
+
 #ifdef DEBUG_CHECK
 	show_memory_usage(mem_size);
 #endif
@@ -269,13 +271,37 @@ void CudaSolver::show_memory_usage(const int &total_space)
 }
 
 /**
+Initializes the LRU column cache
+*/
+void CudaSolver::setup_LRU_cache(int active_size)
+{
+	printf("Host: size of CacheNode %d\n", sizeof(CacheNode));
+	int space = static_cast<int>(cache_size * (1 << 20)); // megabytes
+	int num_elements = space / sizeof(CValue_t); // compute the number of CValue_t elements to cache
+	int num_columns = (num_elements + active_size-1) / active_size; // compute ceiling of number of columns to cache
+	space = num_columns * active_size; // re-compute the number of bytes owe want to cache
+	dh_column_space = make_unique_cuda_array<CValue_t>(space);
+	dh_columns = make_unique_cuda_array<CacheNode*>(active_size);
+	{
+		std::unique_ptr<CacheNode*[]> h_columns(new CacheNode*[active_size]);
+		for (int i = 0; i < active_size; i++)
+			h_columns[i] = NULL;
+		cudaMemcpy(&dh_columns[0], &h_columns[0], active_size * sizeof(CacheNode*), cudaMemcpyHostToDevice);
+	}
+	setup_device_LRU_cache(&dh_columns[0], &dh_column_space[0], space, active_size);
+}
+
+/**
 Loads: kernel_type, svm_type, gamma, coef0, degree, x
 */
 void CudaSolver::load_problem_parameters(const svm_problem &prob, const svm_parameter &param)
 {
 	cudaError_t err;
+
 	svm_node **x = prob.x;
 	int l = prob.l;
+
+	cache_size = param.cache_size; // Save cache size value
 
 	/** allocate space for support vectors */
 	int elements = 0;
@@ -474,6 +500,8 @@ void CudaSolver::fetch_vectors(double *G, double *alpha, char *alpha_status, int
 
 	err = cudaMemcpy(alpha_status, &dh_alpha_status[0], sizeof(char) * l, cudaMemcpyDeviceToHost);
 	check_cuda_return("fail to copy from device dh_alpha_status", err);
+
+	show_device_cache_stats(); // DEBUG
 }
 
 

@@ -27,7 +27,6 @@
 #include <iostream>
 #include <memory>
 #include <ctime>
-
 #include "svm_defs.h"
 
 class CudaSolver
@@ -161,6 +160,11 @@ protected:
 	CudaArray_t<GradValue_t> dh_alpha; 
 	CudaArray_t<char> dh_alpha_status; 	
 
+	/****** LRU CACHE *******/
+	double cache_size;
+	CudaArray_t<CValue_t> dh_column_space;
+	CudaArray_t<CacheNode*> dh_columns;
+
 	/**
 	The following arrays are required by the reducers
 	*/
@@ -172,6 +176,11 @@ protected:
 	enum { LOWER_BOUND = 0, UPPER_BOUND = 1, FREE = 2 };
 
 private:
+	/**
+	Initializes cache
+	*/
+	void setup_LRU_cache(int active_size);
+
 	/**
 	Initializes the cuda device memory array
 	*/

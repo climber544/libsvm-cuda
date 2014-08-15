@@ -10,6 +10,8 @@
 #include <stdexcept>
 #include <cfloat>
 
+const double libsvm_cuda_version = 0.318;
+
 #ifdef __CUDACC__
 #define ALIGN(x)  __align__(x)
 #else
@@ -67,8 +69,8 @@ typedef float CValue_t; // used for computing kernel values
 #define THREADS_PER_BLOCK	256
 #define WARP_SIZE			32
 
-//#define USE_DOUBLE_GRADIENT
-#ifdef USE_DOUBLE_GRADIENT // used for storing gradient values
+#define USE_DOUBLE_GRADIENT 0
+#if USE_DOUBLE_GRADIENT // used for storing gradient values
 typedef double GradValue_t;
 #define GRADVALUE_MAX	DBL_MAX
 #else
@@ -82,9 +84,18 @@ cuda_svm_node.y == svm_node.value
 */
 typedef float2 cuda_svm_node;
 
+struct ALIGN(8) CacheNode {
+	struct CacheNode *next; // next node in LRU list
+	struct CacheNode *prev; // previous node in LRU list
+	int col_idx;   // column that this buffer currently represents
+	int stage_idx; // column that this buffer is being modifed for
+	bool used; // cache node is currently being read
+	CValue_t *column; // buffer for column "col_idx", unless it is being staged
+};
+
 #define TAU 1e-12
 
-static inline void _check_cuda_return(const char *msg, cudaError_t err, char *file, int line)
+static inline void _check_cuda_return(const char *msg, cudaError_t err, const char *file, int line)
 {
 	if (err != cudaSuccess) {
 		std::cerr << "CUDA Error (" << file << ":" << line << "): ";
