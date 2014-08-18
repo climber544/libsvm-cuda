@@ -134,7 +134,13 @@ void CudaSolverNU::init_gmax_space(int l)
 
 void CudaSolverNU::select_working_set_j(GradValue_t Gmaxp, GradValue_t Gmaxn, int l)
 {
-	launch_cuda_compute_nu_obj_diff(num_blocks, block_size, Gmaxp, Gmaxn, &dh_obj_diff_array[0], &dh_obj_diff_idx[0], l);
+	if (svm_type == NU_SVR) {
+		int nblocks = (num_blocks + 1) / 2;
+		launch_cuda_compute_nu_obj_diff_SVR(nblocks, block_size, Gmaxp, Gmaxn, &dh_obj_diff_array[0], &dh_obj_diff_idx[0], l/2);
+	}
+	else {
+		launch_cuda_compute_nu_obj_diff(num_blocks, block_size, Gmaxp, Gmaxn, &dh_obj_diff_array[0], &dh_obj_diff_idx[0], l);
+	}
 
 	NuMinIdxReducer func(&dh_obj_diff_array[0], &dh_obj_diff_idx[0], &dh_result_obj_diff[0], &dh_result_idx[0]);
 

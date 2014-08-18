@@ -28,6 +28,8 @@
 #include <memory>
 #include <ctime>
 #include "svm_defs.h"
+#include <cstring> // for memset
+
 
 class CudaSolver
 {
@@ -163,7 +165,12 @@ protected:
 	/****** LRU CACHE *******/
 	double cache_size;
 	CudaArray_t<CValue_t> dh_column_space;
-	CudaArray_t<CacheNode*> dh_columns;
+	CudaArray_t<CacheNodeBucket> dh_columns;
+
+#if !USE_LIBSVM_SPARSE_FORMAT
+	/**** Sparse Vector representation ****/
+	CudaArray_t<uint32_t> dh_sparse_vector;
+#endif
 
 	/**
 	The following arrays are required by the reducers

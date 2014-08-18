@@ -9,7 +9,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <cfloat>
-
+#include <stdint.h>
 const double libsvm_cuda_version = 0.318;
 
 #ifdef __CUDACC__
@@ -29,8 +29,7 @@ const double libsvm_cuda_version = 0.318;
 #endif
 #endif
 
-
-//#define USE_CONSTANT_SVM_NODE
+#define USE_LIBSVM_SPARSE_FORMAT 0
 //#define DEBUG_VERIFY // for verifying ... more critical than debugging
 //#define DEBUG_CHECK // for debugging
 //#define DEBUG_TRACE // for tracing calls
@@ -78,13 +77,17 @@ typedef float GradValue_t;
 #define GRADVALUE_MAX FLT_MAX
 #endif
 
+#if USE_LIBSVM_SPARSE_FORMAT
 /**
-cuda_svm_node.x == svm_node.index
-cuda_svm_node.y == svm_node.value
+cuda_svm_node.x == svm_node.value
+cuda_svm_node.y == svm_node.index
 */
 typedef float2 cuda_svm_node;
+#else
+typedef float1 cuda_svm_node;
+#endif
 
-struct ALIGN(8) CacheNode {
+struct ALIGN(16) CacheNode {
 	struct CacheNode *next; // next node in LRU list
 	struct CacheNode *prev; // previous node in LRU list
 	int col_idx;   // column that this buffer currently represents
@@ -92,6 +95,13 @@ struct ALIGN(8) CacheNode {
 	bool used; // cache node is currently being read
 	CValue_t *column; // buffer for column "col_idx", unless it is being staged
 };
+
+struct CacheNodeBucket {
+	int last_seen;
+	CacheNode *column;
+};
+
+#define WORD_SIZE	32
 
 #define TAU 1e-12
 

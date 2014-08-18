@@ -131,8 +131,7 @@ void CudaSolver::find_launch_parameters(int &num_blocks, int &block_size, int N)
 	}
 
 	block_size = bsize;
-	num_blocks = N / block_size;
-	if (N % block_size != 0) ++num_blocks;
+	num_blocks = (N + block_size-1) / block_size;
 }
 
 void CudaSolver::init_memory_arrays(int l) 
@@ -281,12 +280,14 @@ void CudaSolver::setup_LRU_cache(int active_size)
 	int num_columns = (num_elements + active_size-1) / active_size; // compute ceiling of number of columns to cache
 	space = num_columns * active_size; // re-compute the number of bytes owe want to cache
 	dh_column_space = make_unique_cuda_array<CValue_t>(space);
-	dh_columns = make_unique_cuda_array<CacheNode*>(active_size);
+	dh_columns = make_unique_cuda_array<CacheNodeBucket>(active_size);
 	{
-		std::unique_ptr<CacheNode*[]> h_columns(new CacheNode*[active_size]);
-		for (int i = 0; i < active_size; i++)
-			h_columns[i] = NULL;
-		cudaMemcpy(&dh_columns[0], &h_columns[0], active_size * sizeof(CacheNode*), cudaMemcpyHostToDevice);
+		std::unique_ptr<CacheNodeBucket[]> h_columns(new CacheNodeBucket[active_size]);
+		for (int i = 0; i < active_size; i++) {
+			h_columns[i].column = NULL;
+			h_columns[i].last_seen = -1;
+		}
+		cudaMemcpy(&dh_columns[0], &h_columns[0], active_size * sizeof(CacheNodeBucket), cudaMemcpyHostToDevice);
 	}
 	setup_device_LRU_cache(&dh_columns[0], &dh_column_space[0], space, active_size);
 }
@@ -304,16 +305,28 @@ void CudaSolver::load_problem_parameters(const svm_problem &prob, const svm_para
 	cache_size = param.cache_size; // Save cache size value
 
 	/** allocate space for support vectors */
+	int max_dim = -1;
 	int elements = 0;
 	for (int i = 0; i < l; ++i)
 	{
 		const svm_node *tmp = x[i];
 		while (tmp->index != -1) { // row terminator
+#if !USE_LIBSVM_SPARSE_FORMAT
+			max_dim = std::max(max_dim, tmp->index); // index always starts from "1"
+#endif
 			++elements; // count each row svm_node element
 			++tmp;
 		}
 		++elements; // count the row terminating svm_node
 	}
+
+#if !USE_LIBSVM_SPARSE_FORMAT
+	int max_words = (max_dim + WORD_SIZE-1) / WORD_SIZE;
+	printf("max dim = %d words = %d\n", max_dim, max_words);
+
+	dh_sparse_vector = make_unique_cuda_array<uint32_t>(l*max_words);
+#endif
+
 	dbgprintf(true, "load_problem_parameters: %d elements need to be moved to device\n", elements);
 
 #define TRANSFER_CHUNK_SIZE		1000000
@@ -324,21 +337,33 @@ void CudaSolver::load_problem_parameters(const svm_problem &prob, const svm_para
 	*/
 	dh_space = make_unique_cuda_array<cuda_svm_node>(elements);
 	{
+#if !USE_LIBSVM_SPARSE_FORMAT
+		std::unique_ptr<uint32_t[]> h_sparse_vector(new uint32_t[l*max_words]);
+		memset(&h_sparse_vector[0], 0, l*max_words*sizeof(uint32_t));
+#endif
+
 		int next_loc = 0; // index in dh_space to move elements too
 		int j = 0; // index for x_space
 		int transfer_chunk = std::min(TRANSFER_CHUNK_SIZE, elements);
 		std::unique_ptr<cuda_svm_node[]> x_space(new cuda_svm_node[transfer_chunk]); 
 		for (int i = 0; i < l; ++i) {
+#if !USE_LIBSVM_SPARSE_FORMAT
+			size_t pattern_offset = i * max_words;
+#endif
 			const svm_node *tmp = x[i];
 			while (tmp->index != -1) {
-				x_space[j].x = static_cast<float>(tmp->index);
-				x_space[j].y = static_cast<float>(tmp->value);
-#ifdef DEBUG_VERIFY
-				if (abs(tmp->value - x_space[j].y) > 1e-4) {
-					std::cerr << "WARNING!: sample space value truncated by "
-						<< abs(tmp->value - x_space[j].y) << std::endl;
-				}
+#if !USE_LIBSVM_SPARSE_FORMAT
+				int idx = tmp->index-1; // index always starts from 1
+				h_sparse_vector[pattern_offset + idx / WORD_SIZE] |= (1 << (idx%WORD_SIZE)); 
 #endif
+#if 0
+				if (i == 3479) // DEBUG
+					printf("i=3479, idx=%d, index=%d\n", j, tmp->index);
+#endif
+#if USE_LIBSVM_SPARSE_FORMAT
+				x_space[j].y = static_cast<float>(tmp->index);
+#endif
+				x_space[j].x = static_cast<float>(tmp->value);
 				++tmp;
 				++j;
 				if (j == transfer_chunk) {
@@ -351,7 +376,12 @@ void CudaSolver::load_problem_parameters(const svm_problem &prob, const svm_para
 					j = 0; // reset index
 				}
 			}
+
+#if USE_LIBSVM_SPARSE_FORMAT
+			x_space[j++].y = -1;
+#else
 			x_space[j++].x = -1;
+#endif
 			if (j == transfer_chunk) {
 				// x_space is full, time to transfer to device
 				dbgprintf(true, "load_problem_parameters: transferring %d bytes (%d elements) to starting index %d\n",
@@ -368,6 +398,10 @@ void CudaSolver::load_problem_parameters(const svm_problem &prob, const svm_para
 			err = cudaMemcpy(&dh_space[next_loc], &x_space[0], j * sizeof(cuda_svm_node), cudaMemcpyHostToDevice);
 			check_cuda_return("fail to copy to device for dh_space", err);
 		}
+#if !USE_LIBSVM_SPARSE_FORMAT
+		err = cudaMemcpy(&dh_sparse_vector[0], &h_sparse_vector[0], l * max_words * sizeof(uint32_t), cudaMemcpyHostToDevice);
+		check_cuda_return("fail to copy to device for dh_sparse_vector", err);
+#endif
 	}
 
 	dbgprintf(true, "load_problem_parameters: setting up dh_x\n");
@@ -388,7 +422,11 @@ void CudaSolver::load_problem_parameters(const svm_problem &prob, const svm_para
 		check_cuda_return("fail to copy to device for dh_x", err);
 	}
 
-	err = update_param_constants(param, &dh_x[0], &dh_space[0], sizeof(cuda_svm_node)*elements, prob.l);
+#if USE_LIBSVM_SPARSE_FORMAT
+	err = update_param_constants(param, &dh_x[0], &dh_space[0], sizeof(cuda_svm_node)*elements, prob.l, NULL, 0);
+#else
+	err = update_param_constants(param, &dh_x[0], &dh_space[0], sizeof(cuda_svm_node)*elements, prob.l, &dh_sparse_vector[0], max_words);
+#endif
 	check_cuda_return("fail to setup parameter constants", err);
 }
 
@@ -432,8 +470,13 @@ void CudaSolver::update_alpha_status()
 void CudaSolver::select_working_set_j(GradValue_t Gmax, int l)
 {
 	logtrace("TRACE: select_working_set_j: num_blocks=%d block_size=%d\n", num_blocks, block_size);
-
-	launch_cuda_compute_obj_diff(num_blocks, block_size, Gmax, &dh_obj_diff_array[0], &dh_obj_diff_idx[0], l);
+	if (svm_type == EPSILON_SVR) {
+		int nblocks = (num_blocks + 1) / 2;
+		launch_cuda_compute_obj_diff_SVR(nblocks, block_size, Gmax, &dh_obj_diff_array[0], &dh_obj_diff_idx[0], l/2);
+	}
+	else {
+		launch_cuda_compute_obj_diff(num_blocks, block_size, Gmax, &dh_obj_diff_array[0], &dh_obj_diff_idx[0], l);
+	}
 	check_cuda_kernel_launch("fail in cuda_compute_obj_diff");
 
 	logtrace("TRACE: select_working_set_j: starting cross_block_reducer\n");
@@ -476,7 +519,13 @@ int CudaSolver::select_working_set(int &out_i, int &out_j, int l)
 void CudaSolver::update_gradient(int l)
 {
 	logtrace("TRACE: update_gradient: l = %d\n", l);
-	launch_cuda_update_gradient(num_blocks, block_size, l);
+	if (svm_type == EPSILON_SVR || svm_type == NU_SVR) {
+		int nblocks = (num_blocks + 1) / 2;
+		launch_cuda_update_gradient_SVR(nblocks, block_size, l/2);
+	}
+	else {
+		launch_cuda_update_gradient(num_blocks, block_size, l);
+	}
 	check_cuda_kernel_launch("fail in cuda_update_gradient");
 }
 
