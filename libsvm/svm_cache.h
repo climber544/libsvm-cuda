@@ -110,13 +110,14 @@ struct LRUList {
 		--size;
 	}
 
-	__device__ CacheNode *evict(int col)
+	__device__ CacheNode *evict(int col, int companion_col)
 	{
 		CacheNode *n = curr;
 		if (n == NULL)
 			n = tail;
 		while ((n->stage_idx != -1 && n->stage_idx != col) ||
-			n->used) {
+			n->used || 
+			n->col_idx == companion_col) {
 			n = n->prev;
 		}
 		return n;
@@ -270,8 +271,11 @@ void setup_device_LRU_cache(CacheNodeBucket *dh_columns, CValue_t *dh_column_spa
 	setup_LRU_cache << <1, 1 >> >(dh_columns, dh_column_space, space, col_size);
 }
 
+/**
+@param companion_col	a column which is being accessed at the same time
+*/
 __device__
-static CValue_t *cache_get_Q(int col, bool &valid, StageArea_t stage_area)
+static CValue_t *cache_get_Q(int col, bool &valid, StageArea_t stage_area, int companion_col = -2)
 {
 	++d_iter;
 	CacheNode *n = d_columns[col].column;
@@ -302,14 +306,14 @@ static CValue_t *cache_get_Q(int col, bool &valid, StageArea_t stage_area)
 		if (stage_area == STAGE_AREA_I) {
 			// State: STAGE_I --> STAGE_J
 			// Pre-condition: all cache nodes are available for eviction
-			n = d_LRU_cache->evict(col);
+			n = d_LRU_cache->evict(col, companion_col);
 		}
 		else {
 			// State: STAGE_J --> COMMIT
 			// Pre-condition: a cache node may be being read or modified by column I
 
 			// select a cache node that is not being staged for ANOTHER column (i.e. I) AND not being read
-			n = d_LRU_cache->evict(col);
+			n = d_LRU_cache->evict(col, companion_col);
 		}
 
 		SERIALIZE(

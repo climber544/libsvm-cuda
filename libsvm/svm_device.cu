@@ -541,49 +541,51 @@ __global__ void cuda_compute_obj_diff(GradValue_t Gmax, CValue_t *dh_obj_diff_ar
 {
 	int i = d_solver.x;
 
-	int j = blockDim.x * blockIdx.x + threadIdx.x;
-	if (j >= N)
-		return;
+	for (int j = blockDim.x * blockIdx.x + threadIdx.x;
+		j < N;
+		j += blockDim.x * gridDim.x) {
 
-	CValue_t Qij;
-	bool valid;
-	CValue_t *Qi = cache_get_Q(i, valid, STAGE_AREA_I); // staged for later use and update
-	if (valid) { // reuse what we already have
-		Qij = Qi[j];
-	}
-	else {
-		Qij = cuda_evalQ(i, j);
-		Qi[j] = Qij;
-	}
+		CValue_t Qij;
+		bool valid;
+		CValue_t *Qi = cache_get_Q(i, valid, STAGE_AREA_I); // staged for later use and update
+		if (valid) { // reuse what we already have
+			Qij = Qi[j];
+		}
+		else {
+			Qij = cuda_evalQ(i, j);
+			Qi[j] = Qij;
+		}
 
-	device_compute_obj_diff(i, j, Qij, Gmax, dh_obj_diff_array, result_indx);
+		device_compute_obj_diff(i, j, Qij, Gmax, dh_obj_diff_array, result_indx);
+	}
 }
 
 __global__ void cuda_compute_obj_diff_SVR(GradValue_t Gmax, CValue_t *dh_obj_diff_array, int *result_indx, int N)
 {
 	int i = d_solver.x;
 
-	int j = blockDim.x * blockIdx.x + threadIdx.x;
-	if (j >= N)
-		return;
+	for (int j = blockDim.x * blockIdx.x + threadIdx.x;
+		j < N;
+		j += blockDim.x * gridDim.x) {
 
-	CValue_t Qij1, Qij2;
-	bool valid;
-	CValue_t *Qi = cache_get_Q(i, valid, STAGE_AREA_I); // staged for later use and update
-	if (valid) { // reuse what we already have
-		Qij1 = Qi[j];
-		Qij2 = Qi[j + d_l];
+		CValue_t Qij1, Qij2;
+		bool valid;
+		CValue_t *Qi = cache_get_Q(i, valid, STAGE_AREA_I); // staged for later use and update
+		if (valid) { // reuse what we already have
+			Qij1 = Qi[j];
+			Qij2 = Qi[j + d_l];
+		}
+		else {
+			Qij1 = cuda_evalQ(i, j);
+			Qi[j] = Qij1;
+
+			Qij2 = -Qij1;
+			Qi[j + d_l] = Qij2;
+		}
+
+		device_compute_obj_diff(i, j, Qij1, Gmax, dh_obj_diff_array, result_indx);
+		device_compute_obj_diff(i, j + d_l, Qij2, Gmax, dh_obj_diff_array, result_indx);
 	}
-	else {
-		Qij1 = cuda_evalQ(i, j);
-		Qi[j] = Qij1;
-
-		Qij2 = -Qij1;
-		Qi[j + d_l] = Qij2;
-	}
-
-	device_compute_obj_diff(i, j, Qij1, Gmax, dh_obj_diff_array, result_indx);
-	device_compute_obj_diff(i, j + d_l, Qij2, Gmax, dh_obj_diff_array, result_indx);
 }
 
 __global__ void cuda_update_gradient(int N)
@@ -762,7 +764,7 @@ __global__ void cuda_find_gmax(find_gmax_param param, int N, bool debug)
 
 	device_block_reducer(func, N); // Template function defined in CudaReducer.h
 
-	if (blockIdx.x == 0)
+	if (blockIdx.x == 0 && threadIdx.x == 0)
 		d_solver.x = func.return_idx();
 }
 
@@ -1042,22 +1044,23 @@ __global__ void cuda_compute_nu_obj_diff(GradValue_t Gmaxp, GradValue_t Gmaxn, C
 	int ip = d_nu_solver.x;
 	int in = d_nu_solver.y;
 
-	int j = blockDim.x * blockIdx.x + threadIdx.x;
-	if (j >= N)
-		return;
+	for (int j = blockDim.x * blockIdx.x + threadIdx.x;
+		j < N;
+		j += blockDim.x * gridDim.x) {
 
-	CValue_t Qipj;
-	bool valid;
-	CValue_t *Qip = cache_get_Q(ip, valid, STAGE_AREA_I); // staged for later use and update
-	if (valid) { // reuse what we already have
-		Qipj = Qip[j];
-	}
-	else {
-		Qipj = cuda_evalQ(ip, j);
-		Qip[j] = Qipj;
-	}
+		CValue_t Qipj;
+		bool valid;
+		CValue_t *Qip = cache_get_Q(ip, valid, STAGE_AREA_I); // staged for later use and update
+		if (valid) { // reuse what we already have
+			Qipj = Qip[j];
+		}
+		else {
+			Qipj = cuda_evalQ(ip, j);
+			Qip[j] = Qipj;
+		}
 
-	device_compute_nu_obj_diff(ip, in, j, Qipj, Gmaxp, Gmaxn, dh_obj_diff_array, result_idx);
+		device_compute_nu_obj_diff(ip, in, j, Qipj, Gmaxp, Gmaxn, dh_obj_diff_array, result_idx);
+	}
 }
 
 __global__ void cuda_compute_nu_obj_diff_SVR(GradValue_t Gmaxp, GradValue_t Gmaxn, CValue_t *dh_obj_diff_array, int *result_idx, int N)
@@ -1065,27 +1068,28 @@ __global__ void cuda_compute_nu_obj_diff_SVR(GradValue_t Gmaxp, GradValue_t Gmax
 	int ip = d_nu_solver.x;
 	int in = d_nu_solver.y;
 
-	int j = blockDim.x * blockIdx.x + threadIdx.x;
-	if (j >= N)
-		return;
+	for (int j = blockDim.x * blockIdx.x + threadIdx.x;
+		j < N;
+		j += blockDim.x * gridDim.x) {
 
-	CValue_t Qipj1, Qipj2;
-	bool valid;
-	CValue_t *Qip = cache_get_Q(ip, valid, STAGE_AREA_I); // staged for later use and update
-	if (valid) { // reuse what we already have
-		Qipj1 = Qip[j];
-		Qipj2 = Qip[j + d_l];
+		CValue_t Qipj1, Qipj2;
+		bool valid;
+		CValue_t *Qip = cache_get_Q(ip, valid, STAGE_AREA_I); // staged for later use and update
+		if (valid) { // reuse what we already have
+			Qipj1 = Qip[j];
+			Qipj2 = Qip[j + d_l];
+		}
+		else {
+			Qipj1 = cuda_evalQ(ip, j);
+			Qip[j] = Qipj1;
+
+			Qipj2 = -Qipj1;
+			Qip[j + d_l] = Qipj2;
+		}
+
+		device_compute_nu_obj_diff(ip, in, j, Qipj1, Gmaxp, Gmaxn, dh_obj_diff_array, result_idx);
+		device_compute_nu_obj_diff(ip, in, j + d_l, Qipj2, Gmaxp, Gmaxn, dh_obj_diff_array, result_idx);
 	}
-	else {
-		Qipj1 = cuda_evalQ(ip, j);
-		Qip[j] = Qipj1;
-
-		Qipj2 = -Qipj1;
-		Qip[j + d_l] = Qipj2;
-	}
-
-	device_compute_nu_obj_diff(ip, in, j, Qipj1, Gmaxp, Gmaxn, dh_obj_diff_array, result_idx);
-	device_compute_nu_obj_diff(ip, in, j + d_l, Qipj2, Gmaxp, Gmaxn, dh_obj_diff_array, result_idx);
 }
 
 __global__ void cuda_find_nu_gmax(find_nu_gmax_param param, int N)
@@ -1095,7 +1099,7 @@ __global__ void cuda_find_nu_gmax(find_nu_gmax_param param, int N)
 
 	device_block_reducer(func, N);
 
-	if (blockIdx.x == 0) {
+	if (blockIdx.x == 0 && threadIdx.x == 0) {
 		int ip, in;
 		func.return_idx(ip, in);
 		d_nu_solver.x = ip;

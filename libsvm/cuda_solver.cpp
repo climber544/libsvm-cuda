@@ -322,7 +322,7 @@ void CudaSolver::load_problem_parameters(const svm_problem &prob, const svm_para
 
 #if !USE_LIBSVM_SPARSE_FORMAT
 	int max_words = (max_dim + WORD_SIZE-1) / WORD_SIZE;
-	printf("max dim = %d words = %d\n", max_dim, max_words);
+	dbgprintf(true, "load_problem_parameters: max dim = %d, max_words = %d, l = %d, allocating dh_sparse_vector size = %ld\n", max_dim, max_words, l, l * max_words);
 
 	dh_sparse_vector = make_unique_cuda_array<uint32_t>(l*max_words);
 #endif
@@ -399,6 +399,7 @@ void CudaSolver::load_problem_parameters(const svm_problem &prob, const svm_para
 			check_cuda_return("fail to copy to device for dh_space", err);
 		}
 #if !USE_LIBSVM_SPARSE_FORMAT
+		dbgprintf(true, "load_problem_parameters: copying %d bytes to dh_sparse_vector\n", l * max_words * sizeof(uint32_t));
 		err = cudaMemcpy(&dh_sparse_vector[0], &h_sparse_vector[0], l * max_words * sizeof(uint32_t), cudaMemcpyHostToDevice);
 		check_cuda_return("fail to copy to device for dh_sparse_vector", err);
 #endif
